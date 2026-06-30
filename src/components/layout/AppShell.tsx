@@ -8,6 +8,7 @@ import {
   Wallet,
   Network,
   Calculator,
+  Megaphone,
   User as UserIcon,
   Bell,
   Shield,
@@ -30,6 +31,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["player", "agent", "admin"] },
   { href: "/network", label: "My Tree", icon: Network, roles: ["player", "agent", "admin"] },
+  { href: "/promote", label: "Promote", icon: Megaphone, roles: ["player", "agent"] },
   { href: "/wallet", label: "Wallet", icon: Wallet, roles: ["player", "agent", "admin"] },
   { href: "/calculator", label: "Calculator", icon: Calculator, roles: ["player", "agent", "admin"] },
   { href: "/admin", label: "Admin", icon: Shield, roles: ["admin"] },
@@ -137,7 +139,9 @@ function TopBar({ user }: { user: User }) {
         >
           <Bell size={18} />
         </Link>
-        <Avatar name={user.fullName} src={user.avatarUrl} size={36} ring />
+        <Link href="/profile" aria-label="Profile">
+          <Avatar name={user.fullName} src={user.avatarUrl} size={36} ring />
+        </Link>
       </div>
     </header>
   );

@@ -9,6 +9,7 @@ import {
   User as UserIcon,
   Bell,
   Shield,
+  Megaphone,
   Target,
   CheckCircle2,
   Circle,
@@ -111,6 +112,17 @@ export default async function DashboardPage() {
       badge: unread > 0 ? String(unread) : undefined,
     },
   ];
+  if (user.role !== "admin") {
+    cards.push({
+      href: "/promote",
+      title: "Promote & Grow",
+      description: "Recruit members into your tree",
+      icon: Megaphone,
+      metric: "Share & invite",
+      metricLabel: "links, posts, QR & banner",
+      tone: "emerald",
+    });
+  }
   if (user.role === "admin") {
     cards.push({
       href: "/admin",
