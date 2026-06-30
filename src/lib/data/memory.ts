@@ -16,11 +16,13 @@ import type {
   User,
 } from "@/types/domain";
 import type {
+  CreateMemberInput,
   CreateTransferInput,
   CreditMemberInput,
   RecordCashInput,
   Repository,
 } from "./repository";
+import { buildNewMember } from "./newMember";
 import { SEED_NOTIFICATIONS, SEED_TRANSACTIONS, SEED_USERS } from "./seed";
 
 /** Agent commission as a fraction of downline rake (illustrative default). */
@@ -341,6 +343,23 @@ export class MemoryRepository implements Repository {
     if (this.users.get(adminId)?.role !== "admin") {
       throw new Error("Not authorized: admin only");
     }
+  }
+
+  async createMember(adminId: string, input: CreateMemberInput): Promise<User> {
+    this.assertAdmin(adminId);
+    const existing = [...this.users.values()];
+    if (existing.some((u) => u.username.toLowerCase() === input.username.trim().toLowerCase())) {
+      throw new Error(`Username "${input.username}" already exists`);
+    }
+    let uplineId: string | null = null;
+    if (input.uplineReferralCode) {
+      const upline = await this.getUserByReferralCode(input.uplineReferralCode);
+      if (!upline) throw new Error(`Unknown upline code "${input.uplineReferralCode}"`);
+      uplineId = upline.id;
+    }
+    const member = buildNewMember(input, this.id("u"), uplineId, String(this.seq));
+    this.users.set(member.id, member);
+    return clone(member);
   }
 
   async setKycStatus(adminId: string, userId: string, status: KycStatus): Promise<User> {

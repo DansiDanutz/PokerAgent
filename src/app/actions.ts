@@ -242,6 +242,45 @@ async function requireAdmin() {
   return user;
 }
 
+export type ImportResult = { created?: number; errors?: string[]; error?: string };
+
+const ROLE_VALUES = new Set(["player", "agent", "admin"]);
+
+/** Parse pasted CSV (username,full_name,email,role,upline_code,clubgg_id,balance) and create members. */
+export async function importRoster(_prev: ImportResult, formData: FormData): Promise<ImportResult> {
+  const admin = await requireAdmin();
+  const repo = getRepository();
+  const text = String(formData.get("csv") ?? "").trim();
+  if (!text) return { error: "Paste at least one CSV row" };
+
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  let created = 0;
+  const errors: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const cells = lines[i].split(",").map((c) => c.trim());
+    if (i === 0 && cells[0].toLowerCase() === "username") continue; // skip header
+    const [username, fullName, email, role, uplineCode, clubggId, balance] = cells;
+    if (!username) continue;
+    try {
+      await repo.createMember(admin.id, {
+        username,
+        fullName: fullName || username,
+        email: email || `${username}@pokeragent.app`,
+        role: role && ROLE_VALUES.has(role.toLowerCase()) ? (role.toLowerCase() as "player" | "agent" | "admin") : "player",
+        uplineReferralCode: uplineCode || undefined,
+        clubggId: clubggId || undefined,
+        balance: balance ? Math.round(Number(balance) * 100) : undefined,
+      });
+      created += 1;
+    } catch (e) {
+      errors.push(`Row ${i + 1} (${username}): ${e instanceof Error ? e.message : "failed"}`);
+    }
+  }
+  revalidatePath("/admin");
+  return { created, errors };
+}
+
 export async function setKyc(
   userId: string,
   status: "verified" | "rejected" | "pending",

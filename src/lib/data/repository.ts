@@ -32,6 +32,18 @@ export interface RecordCashInput {
   processedBy?: string;
 }
 
+export interface CreateMemberInput {
+  username: string;
+  fullName: string;
+  email: string;
+  role?: Role;
+  /** Referral code of the upline agent this member joins under. */
+  uplineReferralCode?: string;
+  clubggId?: string;
+  /** Opening balance in minor units. */
+  balance?: number;
+}
+
 export interface CreditMemberInput {
   /** The agent performing the credit (must be the member's upline). */
   agentId: string;
@@ -83,6 +95,7 @@ export interface Repository {
   // --- admin (admin-only; actorId must be an admin) ---
   getAdminOverview(): Promise<AdminOverview>;
   listPendingTransactions(): Promise<Transaction[]>;
+  createMember(adminId: string, input: CreateMemberInput): Promise<User>;
   setKycStatus(adminId: string, userId: string, status: KycStatus): Promise<User>;
   setAccountStatus(adminId: string, userId: string, status: AccountStatus): Promise<User>;
   setUserRole(adminId: string, userId: string, role: Role): Promise<User>;

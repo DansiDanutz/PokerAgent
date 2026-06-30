@@ -8,6 +8,7 @@ import { Card, Stat, SectionTitle, Badge, Avatar } from "@/components/ui";
 import { approveTransaction, setKyc } from "@/app/actions";
 import { TX_META } from "@/components/wallet/txMeta";
 import { AdminUserManager, type AdminUserRow } from "@/components/admin/AdminUserManager";
+import { RosterTools } from "@/components/admin/RosterTools";
 import { formatMoney, formatNumber, formatDate } from "@/lib/format";
 export default async function AdminPage() {
   const user = (await getCurrentUser())!;
@@ -148,6 +149,8 @@ export default async function AdminPage() {
           </ul>
         )}
       </Card>
+
+      <RosterTools users={adminRows} />
 
       <AdminUserManager users={adminRows} />
     </div>

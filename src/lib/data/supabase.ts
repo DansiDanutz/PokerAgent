@@ -20,12 +20,14 @@ import type {
   User,
 } from "@/types/domain";
 import type {
+  CreateMemberInput,
   CreateTransferInput,
   CreditMemberInput,
   RecordCashInput,
   Repository,
 } from "./repository";
 import { AGENT_COMMISSION_RATE } from "./memory";
+import { buildNewMember } from "./newMember";
 
 type ProfileRow = {
   id: string;
@@ -400,6 +402,29 @@ export class SupabaseRepository implements Repository {
   private async assertAdmin(adminId: string): Promise<void> {
     const actor = await this.profile(adminId);
     if (actor?.role !== "admin") throw new Error("Not authorized: admin only");
+  }
+
+  async createMember(adminId: string, input: CreateMemberInput): Promise<User> {
+    await this.assertAdmin(adminId);
+    const { data: dup } = await this.db
+      .from("pa_profiles").select("id").ilike("username", input.username.trim()).maybeSingle();
+    if (dup) throw new Error(`Username "${input.username}" already exists`);
+    let uplineId: string | null = null;
+    if (input.uplineReferralCode) {
+      const upline = await this.getUserByReferralCode(input.uplineReferralCode);
+      if (!upline) throw new Error(`Unknown upline code "${input.uplineReferralCode}"`);
+      uplineId = upline.id;
+    }
+    const member = buildNewMember(input, this.newId("u"), uplineId, crypto.randomUUID());
+    const { error } = await this.db.from("pa_profiles").insert({
+      id: member.id, username: member.username, full_name: member.fullName, email: member.email,
+      role: member.role, status: member.status, kyc_status: member.kycStatus,
+      upline_agent_id: member.uplineAgentId, referral_code: member.referralCode,
+      clubgg_id: member.clubggId ?? null, clubgg_nickname: member.clubggNickname ?? null,
+      balance: member.balance, currency: member.currency, table_hours: 0, created_at: member.createdAt,
+    });
+    if (error) throw new Error(error.message);
+    return member;
   }
 
   async setKycStatus(adminId: string, userId: string, status: KycStatus): Promise<User> {

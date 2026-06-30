@@ -155,4 +155,28 @@ describe("MemoryRepository — admin controls", () => {
     await expect(repo.setUserRole("u_arjun", "u_alex", "agent")).rejects.toThrow(/admin only/i);
     await expect(repo.adminAdjustBalance("u_arjun", "u_tom", 100)).rejects.toThrow(/admin only/i);
   });
+
+  it("creates a member under an upline and derives a referral code", async () => {
+    const created = await repo.createMember("u_admin", {
+      username: "newguy",
+      fullName: "New Guy",
+      email: "new@guy.com",
+      uplineReferralCode: "PAGENT-ARJUN12",
+      balance: 5_000,
+    });
+    expect(created.uplineAgentId).toBe("u_arjun");
+    expect(created.referralCode).toMatch(/^PA-NEWGUY-/);
+    expect(created.balance).toBe(5_000);
+    // Now appears in Arjun's downline.
+    expect((await repo.listDownline("u_arjun")).some((u) => u.id === created.id)).toBe(true);
+  });
+
+  it("rejects duplicate usernames and bad upline codes", async () => {
+    await expect(
+      repo.createMember("u_admin", { username: "alexplayer", fullName: "Dupe", email: "d@d.com" }),
+    ).rejects.toThrow(/already exists/i);
+    await expect(
+      repo.createMember("u_admin", { username: "zzz", fullName: "Z", email: "z@z.com", uplineReferralCode: "NOPE" }),
+    ).rejects.toThrow(/unknown upline/i);
+  });
 });
