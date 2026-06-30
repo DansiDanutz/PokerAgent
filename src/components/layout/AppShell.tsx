@@ -1,0 +1,158 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { clsx } from "clsx";
+import {
+  LayoutDashboard,
+  Wallet,
+  Network,
+  Calculator,
+  User as UserIcon,
+  Bell,
+  Shield,
+  LogOut,
+} from "lucide-react";
+import type { ReactNode } from "react";
+import type { Role, User } from "@/types/domain";
+import { Brand } from "@/components/brand";
+import { Avatar } from "@/components/ui";
+import { formatMoney } from "@/lib/format";
+import { logout } from "@/app/actions";
+
+interface NavItem {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  roles: Role[];
+}
+
+const NAV: NavItem[] = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["player", "agent", "admin"] },
+  { href: "/network", label: "Network", icon: Network, roles: ["agent", "admin"] },
+  { href: "/wallet", label: "Wallet", icon: Wallet, roles: ["player", "agent", "admin"] },
+  { href: "/calculator", label: "Calculator", icon: Calculator, roles: ["player", "agent", "admin"] },
+  { href: "/admin", label: "Admin", icon: Shield, roles: ["admin"] },
+  { href: "/notifications", label: "Alerts", icon: Bell, roles: ["player", "agent", "admin"] },
+  { href: "/profile", label: "Profile", icon: UserIcon, roles: ["player", "agent", "admin"] },
+];
+
+export function AppShell({ user, children }: { user: User; children: ReactNode }) {
+  const pathname = usePathname();
+  const items = NAV.filter((i) => i.roles.includes(user.role));
+
+  return (
+    <div className="mx-auto flex min-h-screen w-full max-w-7xl">
+      {/* Desktop sidebar */}
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-white/5 px-4 py-6 lg:flex">
+        <Brand size="sm" />
+        <nav className="mt-8 flex flex-1 flex-col gap-1">
+          {items.map((item) => (
+            <NavLink key={item.href} item={item} active={pathname === item.href} />
+          ))}
+        </nav>
+        <RoleCard user={user} />
+        <LogoutButton />
+      </aside>
+
+      {/* Main column */}
+      <div className="flex min-w-0 flex-1 flex-col pb-24 lg:pb-0">
+        <TopBar user={user} />
+        <main className="flex-1 px-4 py-5 sm:px-6">{children}</main>
+      </div>
+
+      {/* Mobile bottom nav */}
+      <nav className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-around border-t border-white/10 bg-felt-900/95 px-2 py-2 backdrop-blur lg:hidden">
+        {items.slice(0, 5).map((item) => {
+          const Icon = item.icon;
+          const active = pathname === item.href;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={clsx(
+                "flex flex-col items-center gap-1 rounded-lg px-3 py-1 text-[10px]",
+                active ? "text-emerald-soft" : "text-ink-500",
+              )}
+            >
+              <Icon size={20} strokeWidth={active ? 2.4 : 1.8} />
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
+    </div>
+  );
+}
+
+function NavLink({ item, active }: { item: NavItem; active: boolean }) {
+  const Icon = item.icon;
+  return (
+    <Link
+      href={item.href}
+      className={clsx(
+        "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition",
+        active
+          ? "bg-emerald-glow/12 text-emerald-soft ring-1 ring-inset ring-emerald-glow/25"
+          : "text-ink-300 hover:bg-white/5",
+      )}
+    >
+      <Icon size={18} />
+      {item.label}
+    </Link>
+  );
+}
+
+function RoleCard({ user }: { user: User }) {
+  return (
+    <div className="card-surface mb-3 p-3">
+      <div className="flex items-center gap-3">
+        <Avatar name={user.fullName} src={user.avatarUrl} size={36} ring />
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-ink-100">{user.fullName}</p>
+          <p className="text-xs capitalize text-gold-300">{user.role}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TopBar({ user }: { user: User }) {
+  return (
+    <header className="sticky top-0 z-20 flex items-center justify-between border-b border-white/5 bg-felt-950/80 px-4 py-3 backdrop-blur sm:px-6">
+      <div className="lg:hidden">
+        <Brand size="sm" />
+      </div>
+      <div className="hidden lg:block">
+        <p className="text-xs uppercase tracking-wide text-ink-500">Available balance</p>
+        <p className="text-lg font-semibold gold-text">{formatMoney(user.balance, user.currency)}</p>
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="rounded-full bg-white/5 px-3 py-1 text-xs text-ink-300 ring-1 ring-inset ring-white/10 lg:hidden">
+          {formatMoney(user.balance, user.currency)}
+        </div>
+        <Link
+          href="/notifications"
+          className="grid h-9 w-9 place-items-center rounded-full bg-white/5 text-ink-300 ring-1 ring-inset ring-white/10 hover:text-emerald-soft"
+        >
+          <Bell size={18} />
+        </Link>
+        <Avatar name={user.fullName} src={user.avatarUrl} size={36} ring />
+      </div>
+    </header>
+  );
+}
+
+function LogoutButton() {
+  return (
+    <form action={logout}>
+      <button
+        type="submit"
+        className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-ink-400 transition hover:bg-white/5 hover:text-[var(--color-danger)]"
+      >
+        <LogOut size={18} />
+        Log out
+      </button>
+    </form>
+  );
+}

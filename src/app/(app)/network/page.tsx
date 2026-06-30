@@ -1,0 +1,105 @@
+import { redirect } from "next/navigation";
+import { getCurrentUser } from "@/lib/auth/session";
+import { getRepository } from "@/lib/data";
+import { Card, Stat, SectionTitle, Badge } from "@/components/ui";
+import { NetworkTree } from "@/components/network/NetworkTree";
+import { RakeBarChart } from "@/components/charts/RakeBarChart";
+import { InviteCard } from "@/components/InviteCard";
+import type { NetworkNode } from "@/types/domain";
+import { formatMoney, formatNumber } from "@/lib/format";
+
+function flatten(node: NetworkNode, acc: NetworkNode[] = []): NetworkNode[] {
+  for (const c of node.children) {
+    acc.push(c);
+    flatten(c, acc);
+  }
+  return acc;
+}
+
+export default async function NetworkPage() {
+  const user = (await getCurrentUser())!;
+  if (user.role === "player") redirect("/dashboard");
+
+  const repo = getRepository();
+  const [tree, summary] = await Promise.all([
+    repo.getNetworkTree(user.id),
+    repo.getNetworkSummary(user.id),
+  ]);
+  if (!tree) redirect("/dashboard");
+
+  const players = flatten(tree).sort(
+    (a, b) => b.user.stats.rakeGenerated - a.user.stats.rakeGenerated,
+  );
+  const chartData = players.slice(0, 6).map((n) => ({
+    label: n.user.username.slice(0, 8),
+    value: Math.round(n.user.stats.rakeGenerated / 100),
+  }));
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold text-ink-100">Your network</h1>
+        <p className="text-sm text-ink-400">Player stats from across your tree.</p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Stat label="Direct referrals" value={formatNumber(summary.directReferrals)} />
+        <Stat label="Total network" value={formatNumber(summary.totalNetwork)} tone="gold" />
+        <Stat label="Active players" value={formatNumber(summary.activePlayers)} tone="up" />
+        <Stat label="Commission" value={formatMoney(summary.commissionEarned, summary.currency)} tone="gold" />
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <SectionTitle title="Rake by player" subtitle="Top contributors in your network" />
+          <RakeBarChart data={chartData} />
+        </Card>
+        <InviteCard code={user.referralCode} />
+      </div>
+
+      <Card>
+        <SectionTitle
+          title="Network tree"
+          subtitle="Expand agents to see their downline"
+          action={<Badge tone="emerald">{summary.totalNetwork} members</Badge>}
+        />
+        <NetworkTree root={tree} />
+      </Card>
+
+      <Card>
+        <SectionTitle title="Player leaderboard" subtitle="Ranked by rake generated" />
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-wide text-ink-500">
+                <th className="px-2 py-2">Player</th>
+                <th className="px-2 py-2 text-right">Hands</th>
+                <th className="px-2 py-2 text-right">Net</th>
+                <th className="px-2 py-2 text-right">Rake</th>
+                <th className="px-2 py-2 text-right">Balance</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {players.map((n) => (
+                <tr key={n.user.id} className="text-ink-200">
+                  <td className="px-2 py-2.5">
+                    <span className="font-medium text-ink-100">{n.user.fullName}</span>
+                    {n.user.role === "agent" && <span className="ml-2 text-[11px] text-gold-300">agent</span>}
+                  </td>
+                  <td className="px-2 py-2.5 text-right">{formatNumber(n.user.stats.handsPlayed)}</td>
+                  <td className={`px-2 py-2.5 text-right ${n.user.stats.netProfit >= 0 ? "text-emerald-soft" : "text-[var(--color-danger)]"}`}>
+                    {formatMoney(n.user.stats.netProfit, n.user.currency)}
+                  </td>
+                  <td className="px-2 py-2.5 text-right gold-text font-medium">
+                    {formatMoney(n.user.stats.rakeGenerated, n.user.currency)}
+                  </td>
+                  <td className="px-2 py-2.5 text-right">{formatMoney(n.user.balance, n.user.currency)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
