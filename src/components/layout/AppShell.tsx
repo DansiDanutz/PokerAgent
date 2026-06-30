@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Wallet,
   Network,
+  Users,
   Calculator,
   Megaphone,
   User as UserIcon,
@@ -31,6 +32,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["player", "agent", "admin"] },
   { href: "/network", label: "My Tree", icon: Network, roles: ["player", "agent", "admin"] },
+  { href: "/members", label: "Members", icon: Users, roles: ["agent", "admin"] },
   { href: "/promote", label: "Promote", icon: Megaphone, roles: ["player", "agent"] },
   { href: "/wallet", label: "Wallet", icon: Wallet, roles: ["player", "agent", "admin"] },
   { href: "/calculator", label: "Calculator", icon: Calculator, roles: ["player", "agent", "admin"] },

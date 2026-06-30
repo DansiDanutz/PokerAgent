@@ -5,6 +5,7 @@ import {
   SendHorizontal,
   Wallet as WalletIcon,
   Network as NetworkIcon,
+  Users as UsersIcon,
   Calculator as CalcIcon,
   User as UserIcon,
   Bell,
@@ -112,6 +113,17 @@ export default async function DashboardPage() {
       badge: unread > 0 ? String(unread) : undefined,
     },
   ];
+  if (user.role !== "player") {
+    cards.splice(1, 0, {
+      href: "/members",
+      title: "Manage Members",
+      description: "Chips, hours, approvals",
+      icon: UsersIcon,
+      metric: formatNumber(totalNetwork),
+      metricLabel: "members to manage",
+      tone: "gold",
+    });
+  }
   if (user.role !== "admin") {
     cards.push({
       href: "/promote",

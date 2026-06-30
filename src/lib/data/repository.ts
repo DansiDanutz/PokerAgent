@@ -30,6 +30,15 @@ export interface RecordCashInput {
   processedBy?: string;
 }
 
+export interface CreditMemberInput {
+  /** The agent performing the credit (must be the member's upline). */
+  agentId: string;
+  memberId: string;
+  type: Extract<TransactionType, "deposit" | "rake_rebate" | "adjustment">;
+  amount: number; // minor units, positive magnitude
+  note?: string;
+}
+
 export interface Repository {
   // --- users ---
   getUser(id: string): Promise<User | null>;
@@ -39,6 +48,21 @@ export interface Repository {
   // --- network (agent tree) ---
   getNetworkTree(agentId: string): Promise<NetworkNode | null>;
   getNetworkSummary(agentId: string): Promise<NetworkSummary>;
+  /** Flattened list of every user in an agent's downline subtree. */
+  listDownline(agentId: string): Promise<User[]>;
+  /** True when `agentId` is an ancestor (upline) of `userId`. */
+  isUpline(agentId: string, userId: string): Promise<boolean>;
+
+  // --- agent member management (authorized: agent must be the member's upline) ---
+  creditMember(input: CreditMemberInput): Promise<Transaction>;
+  setMemberTableHours(agentId: string, memberId: string, hours: number): Promise<User>;
+  promoteToAgent(agentId: string, memberId: string): Promise<User>;
+  /** Approve/reject a pending transaction belonging to the agent's downline. */
+  decideMemberTransaction(
+    agentId: string,
+    txId: string,
+    status: "approved" | "rejected",
+  ): Promise<Transaction>;
 
   // --- wallet / transactions ---
   listTransactions(userId: string): Promise<Transaction[]>;

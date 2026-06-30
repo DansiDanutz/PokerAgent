@@ -15,6 +15,7 @@ import type {
 } from "@/types/domain";
 import type {
   CreateTransferInput,
+  CreditMemberInput,
   RecordCashInput,
   Repository,
 } from "./repository";
@@ -129,6 +130,75 @@ export class MemoryRepository implements Repository {
       commissionEarned: Math.round(networkRake * AGENT_COMMISSION_RATE),
       currency: agent?.currency ?? "USD",
     };
+  }
+
+  async listDownline(agentId: string): Promise<User[]> {
+    const result: User[] = [];
+    const walk = (parentId: string) => {
+      for (const child of this.childrenOf(parentId)) {
+        result.push(child);
+        walk(child.id);
+      }
+    };
+    walk(agentId);
+    return clone(result);
+  }
+
+  async isUpline(agentId: string, userId: string): Promise<boolean> {
+    let cur = this.users.get(userId)?.uplineAgentId ?? null;
+    let guard = 0;
+    while (cur && guard < 50) {
+      if (cur === agentId) return true;
+      cur = this.users.get(cur)?.uplineAgentId ?? null;
+      guard += 1;
+    }
+    return false;
+  }
+
+  private async assertUpline(agentId: string, memberId: string): Promise<void> {
+    // Admins may manage anyone; agents only their own downline.
+    if (this.users.get(agentId)?.role === "admin") return;
+    if (!(await this.isUpline(agentId, memberId))) {
+      throw new Error("Not authorized: that member is not in your network");
+    }
+  }
+
+  async creditMember(input: CreditMemberInput): Promise<Transaction> {
+    await this.assertUpline(input.agentId, input.memberId);
+    return this.recordCash({
+      userId: input.memberId,
+      type: input.type,
+      amount: input.amount,
+      note: input.note,
+      processedBy: input.agentId,
+    });
+  }
+
+  async setMemberTableHours(agentId: string, memberId: string, hours: number): Promise<User> {
+    await this.assertUpline(agentId, memberId);
+    if (hours < 0) throw new Error("Hours cannot be negative");
+    const member = this.users.get(memberId)!;
+    member.stats = { ...member.stats, tableHours: hours };
+    return clone(member);
+  }
+
+  async promoteToAgent(agentId: string, memberId: string): Promise<User> {
+    await this.assertUpline(agentId, memberId);
+    const member = this.users.get(memberId)!;
+    if (member.role === "admin") throw new Error("Cannot change an admin's role");
+    member.role = "agent";
+    return clone(member);
+  }
+
+  async decideMemberTransaction(
+    agentId: string,
+    txId: string,
+    status: "approved" | "rejected",
+  ): Promise<Transaction> {
+    const tx = this.transactions.find((t) => t.id === txId);
+    if (!tx) throw new Error("Transaction not found");
+    await this.assertUpline(agentId, tx.userId);
+    return this.setTransactionStatus(txId, status, agentId);
   }
 
   async listTransactions(userId: string): Promise<Transaction[]> {

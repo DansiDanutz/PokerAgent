@@ -166,3 +166,70 @@ export async function readNotification(id: string): Promise<void> {
   await getRepository().markNotificationRead(id);
   revalidatePath("/notifications");
 }
+
+// --- Agent member management -----------------------------------------------
+
+async function requireManager() {
+  const user = await getCurrentUser();
+  if (!user || (user.role !== "agent" && user.role !== "admin")) {
+    throw new Error("Agents only");
+  }
+  return user;
+}
+
+const creditSchema = z.object({
+  memberId: z.string().min(1),
+  type: z.enum(["deposit", "rake_rebate", "adjustment"]),
+  amount: z.coerce.number().positive("Amount must be greater than zero"),
+  note: z.string().optional(),
+});
+
+export async function creditMember(formData: FormData): Promise<void> {
+  const agent = await requireManager();
+  const parsed = creditSchema.safeParse({
+    memberId: formData.get("memberId"),
+    type: formData.get("type"),
+    amount: formData.get("amount"),
+    note: formData.get("note") || undefined,
+  });
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  await getRepository().creditMember({
+    agentId: agent.id,
+    memberId: parsed.data.memberId,
+    type: parsed.data.type,
+    amount: Math.round(parsed.data.amount * 100),
+    note: parsed.data.note,
+  });
+  revalidatePath("/members");
+}
+
+const hoursSchema = z.object({
+  memberId: z.string().min(1),
+  hours: z.coerce.number().min(0, "Hours cannot be negative"),
+});
+
+export async function logMemberHours(formData: FormData): Promise<void> {
+  const agent = await requireManager();
+  const parsed = hoursSchema.safeParse({
+    memberId: formData.get("memberId"),
+    hours: formData.get("hours"),
+  });
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  await getRepository().setMemberTableHours(agent.id, parsed.data.memberId, parsed.data.hours);
+  revalidatePath("/members");
+}
+
+export async function promoteMember(memberId: string): Promise<void> {
+  const agent = await requireManager();
+  await getRepository().promoteToAgent(agent.id, memberId);
+  revalidatePath("/members");
+}
+
+export async function decideMemberTransaction(
+  txId: string,
+  decision: "approved" | "rejected",
+): Promise<void> {
+  const agent = await requireManager();
+  await getRepository().decideMemberTransaction(agent.id, txId, decision);
+  revalidatePath("/members");
+}

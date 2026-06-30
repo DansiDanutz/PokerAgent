@@ -66,3 +66,59 @@ describe("MemoryRepository — transfers", () => {
     expect((await repo.getUser("u_sara"))!.balance).toBe(before + 60_000);
   });
 });
+
+describe("MemoryRepository — agent member management", () => {
+  let repo: MemoryRepository;
+  beforeEach(() => {
+    repo = new MemoryRepository();
+  });
+
+  it("knows the upline chain (Arjun → Marco → Diego)", async () => {
+    expect(await repo.isUpline("u_arjun", "u_diego")).toBe(true);
+    expect(await repo.isUpline("u_marco", "u_diego")).toBe(true);
+    expect(await repo.isUpline("u_marco", "u_alex")).toBe(false);
+    expect(await repo.isUpline("u_nadia", "u_alex")).toBe(false);
+  });
+
+  it("lists the whole downline", async () => {
+    expect((await repo.listDownline("u_arjun")).length).toBe(8);
+    expect((await repo.listDownline("u_alex")).map((u) => u.id).sort()).toEqual(
+      ["u_liam", "u_mia", "u_noah"].sort(),
+    );
+  });
+
+  it("credits a downline member and moves their balance", async () => {
+    const before = (await repo.getUser("u_diego"))!.balance;
+    await repo.creditMember({ agentId: "u_arjun", memberId: "u_diego", type: "rake_rebate", amount: 2_500 });
+    expect((await repo.getUser("u_diego"))!.balance).toBe(before + 2_500);
+  });
+
+  it("refuses to credit someone outside the agent's network", async () => {
+    await expect(
+      repo.creditMember({ agentId: "u_nadia", memberId: "u_alex", type: "adjustment", amount: 100 }),
+    ).rejects.toThrow(/not authorized/i);
+  });
+
+  it("logs table hours (which can lift the member's level)", async () => {
+    const updated = await repo.setMemberTableHours("u_alex", "u_mia", 6);
+    expect(updated.stats.tableHours).toBe(6);
+  });
+
+  it("promotes a downline player to agent", async () => {
+    const promoted = await repo.promoteToAgent("u_alex", "u_noah");
+    expect(promoted.role).toBe("agent");
+  });
+
+  it("lets an upline agent approve a member's pending request", async () => {
+    const before = (await repo.getUser("u_alex"))!.balance;
+    // t3 is Alex's pending -20_000 withdrawal; Arjun is Alex's upline.
+    await repo.decideMemberTransaction("u_arjun", "t3", "approved");
+    expect((await repo.getUser("u_alex"))!.balance).toBe(before - 20_000);
+  });
+
+  it("blocks approving a request outside the network", async () => {
+    await expect(repo.decideMemberTransaction("u_nadia", "t3", "approved")).rejects.toThrow(
+      /not authorized/i,
+    );
+  });
+});
