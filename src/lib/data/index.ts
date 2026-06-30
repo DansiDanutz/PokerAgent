@@ -17,20 +17,20 @@ export function getRepository(): Repository {
 
   const driver = process.env.DATA_DRIVER ?? "memory";
   let repo: Repository;
-  switch (driver) {
-    case "supabase":
-      // SupabaseRepository implements the same interface against the schema in
-      // supabase/migrations. Falls back to memory until configured to avoid a
-      // broken runtime in local/demo environments.
+  if (driver === "supabase") {
+    try {
+      // Lazy require so the in-memory path never pulls in the Supabase client.
+      const { SupabaseRepository } = require("./supabase") as typeof import("./supabase");
+      repo = new SupabaseRepository();
+    } catch (e) {
       console.warn(
-        "[data] DATA_DRIVER=supabase requested but SupabaseRepository is not " +
-          "configured; falling back to the in-memory driver.",
+        `[data] DATA_DRIVER=supabase but the Supabase client could not be initialized ` +
+          `(${e instanceof Error ? e.message : "unknown error"}); falling back to in-memory.`,
       );
       repo = new MemoryRepository();
-      break;
-    case "memory":
-    default:
-      repo = new MemoryRepository();
+    }
+  } else {
+    repo = new MemoryRepository();
   }
 
   globalForRepo.__pokerRepo = repo;
