@@ -40,15 +40,15 @@ export function MemberManager({ members }: { members: MemberRow[] }) {
 
   return (
     <Card>
-      <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-ink-100">Members ({members.length})</h2>
         <div className="flex items-center gap-2 rounded-xl bg-felt-900 px-3 py-2 ring-1 ring-inset ring-white/10">
-          <Search size={15} className="text-ink-500" />
+          <Search size={15} className="shrink-0 text-ink-500" />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search members"
-            className="bg-transparent text-sm text-ink-100 outline-none placeholder:text-ink-500"
+            className="w-28 min-w-0 bg-transparent text-sm text-ink-100 outline-none placeholder:text-ink-500 sm:w-44"
           />
         </div>
       </div>

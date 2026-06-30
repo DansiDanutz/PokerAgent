@@ -198,7 +198,7 @@ export default async function DashboardPage() {
       {/* Path to Agent (players only) */}
       {user.role === "player" && (
         <Card glow="emerald">
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <Target size={18} className="text-emerald-soft" />
               <h2 className="text-base font-semibold text-ink-100">Path to Agent</h2>

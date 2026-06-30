@@ -236,14 +236,14 @@ export function Calculator() {
             {Array.from({ length: numPlayers }).map((_, i) => {
               const equity = result?.players[i]?.equity;
               return (
-                <div key={i} className="flex items-center gap-3 rounded-xl bg-white/[0.03] p-3 ring-1 ring-inset ring-white/5">
+                <div key={i} className="flex flex-wrap items-center gap-3 rounded-xl bg-white/[0.03] p-3 ring-1 ring-inset ring-white/5">
                   <div className="w-16 shrink-0">
                     <p className="text-sm font-medium text-ink-100">{i === 0 ? "Hero" : `P${i + 1}`}</p>
                     {equity !== undefined && (
                       <p className="text-xs font-semibold text-emerald-soft">{formatPercent(equity)}</p>
                     )}
                   </div>
-                  <div className="flex gap-1.5">
+                  <div className="flex flex-wrap gap-1.5">
                     {Array.from({ length: holeCount }).map((__, j) => {
                       const id = `p:${i}:${j}`;
                       const card = players[i]?.[j];

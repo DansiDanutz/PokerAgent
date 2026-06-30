@@ -49,8 +49,8 @@ export function AdminUserManager({ users }: { users: AdminUserRow[] }) {
     <Card>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-ink-100">User management ({users.length})</h2>
-        <div className="flex items-center gap-2">
-          <div className="inline-flex rounded-xl bg-felt-900 p-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex flex-wrap rounded-xl bg-felt-900 p-1">
             {(["all", "player", "agent", "admin"] as const).map((r) => (
               <button
                 key={r}
@@ -69,7 +69,7 @@ export function AdminUserManager({ users }: { users: AdminUserRow[] }) {
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search"
-              className="w-24 bg-transparent text-sm text-ink-100 outline-none placeholder:text-ink-500 sm:w-36"
+              className="w-20 min-w-0 bg-transparent text-sm text-ink-100 outline-none placeholder:text-ink-500 sm:w-36"
             />
           </div>
         </div>

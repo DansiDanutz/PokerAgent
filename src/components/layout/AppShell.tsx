@@ -66,7 +66,7 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
       </div>
 
       {/* Mobile bottom nav */}
-      <nav className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-around border-t border-white/10 bg-felt-900/95 px-2 py-2 backdrop-blur lg:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-around overflow-hidden border-t border-white/10 bg-felt-900/95 px-1 py-2 backdrop-blur lg:hidden">
         {items.slice(0, 5).map((item) => {
           const Icon = item.icon;
           const active = pathname === item.href;
@@ -75,12 +75,12 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
               key={item.href}
               href={item.href}
               className={clsx(
-                "flex flex-col items-center gap-1 rounded-lg px-3 py-1 text-[10px]",
+                "flex min-w-0 flex-1 flex-col items-center gap-1 rounded-lg px-1 py-1 text-[10px]",
                 active ? "text-emerald-soft" : "text-ink-500",
               )}
             >
               <Icon size={20} strokeWidth={active ? 2.4 : 1.8} />
-              {item.label}
+              <span className="truncate">{item.label}</span>
             </Link>
           );
         })}
