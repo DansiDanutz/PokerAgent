@@ -35,8 +35,8 @@ export function SectionTitle({
   action?: ReactNode;
 }) {
   return (
-    <div className="mb-4 flex items-end justify-between gap-3">
-      <div>
+    <div className="mb-4 flex flex-wrap items-end justify-between gap-x-3 gap-y-2">
+      <div className="min-w-0">
         <h2 className="text-lg font-semibold tracking-tight text-ink-100">{title}</h2>
         {subtitle && <p className="text-sm text-ink-400">{subtitle}</p>}
       </div>
@@ -58,7 +58,9 @@ export function Stat({
 }) {
   return (
     <div className="card-surface p-4">
-      <p className="text-xs uppercase tracking-wide text-ink-400">{label}</p>
+      {/* min-h keeps the value baseline aligned across a row even when one
+          tile's label wraps to two lines and a neighbor's doesn't. */}
+      <p className="min-h-[2rem] text-xs uppercase leading-4 tracking-wide text-ink-400">{label}</p>
       <p
         className={clsx(
           "mt-1 text-xl font-semibold",

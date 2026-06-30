@@ -20,7 +20,9 @@ export default async function WalletPage() {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <Stat label="Balance" value={formatMoney(user.balance, user.currency)} tone="gold" />
         <Stat label="Pending" value={formatMoney(pending, user.currency)} tone={pending ? "down" : "default"} />
-        <Stat label="Transactions" value={String(transactions.length)} />
+        <div className="col-span-2 sm:col-span-1">
+          <Stat label="Transactions" value={String(transactions.length)} />
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">

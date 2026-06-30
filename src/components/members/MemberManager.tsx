@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { X, Coins, Clock, Search } from "lucide-react";
+import { X, Coins, Clock, Search, ChevronRight } from "lucide-react";
 import type { MemberStatus } from "@/types/domain";
 import { Card, Button, Avatar } from "@/components/ui";
 import { MemberStatusBadge } from "@/components/MemberStatusBadge";
@@ -53,62 +53,92 @@ export function MemberManager({ members }: { members: MemberRow[] }) {
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs uppercase tracking-wide text-ink-500">
-              <th className="px-2 py-2">Member</th>
-              <th className="px-2 py-2">Status</th>
-              <th className="px-2 py-2 text-right">Hours</th>
-              <th className="px-2 py-2 text-right">Balance</th>
-              <th className="px-2 py-2 text-right">Rake</th>
-              <th className="px-2 py-2 text-right">Manage</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/5">
+      {filtered.length === 0 ? (
+        <p className="py-8 text-center text-sm text-ink-400">No members found.</p>
+      ) : (
+        <>
+          {/* Card list — phones & narrow tablets. */}
+          <ul className="space-y-2 md:hidden">
             {filtered.map((m) => (
-              <tr key={m.id} className="text-ink-200">
-                <td className="px-2 py-2.5">
-                  <div className="flex items-center gap-2">
-                    <Avatar name={m.fullName} size={28} />
-                    <div>
-                      <p className="font-medium text-ink-100">{m.fullName}</p>
-                      <p className="text-[11px] text-ink-500">@{m.username}{m.clubggId ? ` · ClubGG ${m.clubggId}` : ""}</p>
+              <li key={m.id}>
+                <button
+                  onClick={() => setOpenId(m.id)}
+                  className="flex w-full items-center gap-3 rounded-xl bg-white/[0.03] p-3 text-left ring-1 ring-inset ring-white/5 transition hover:bg-white/[0.06]"
+                >
+                  <Avatar name={m.fullName} size={36} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate font-medium text-ink-100">{m.fullName}</p>
+                      {m.role === "agent" ? (
+                        <span className="shrink-0 rounded-full bg-gold-500/15 px-2 py-0.5 text-[11px] font-medium text-gold-300 ring-1 ring-inset ring-gold-500/30">
+                          Agent
+                        </span>
+                      ) : (
+                        <MemberStatusBadge status={m.status} level={m.level} />
+                      )}
                     </div>
+                    <p className="mt-0.5 text-xs text-ink-500">
+                      {m.tableHours}h · {formatMoney(m.balance, m.currency)} bal · <span className="text-gold-300">{formatMoney(m.rake, m.currency)}</span> rake
+                    </p>
                   </div>
-                </td>
-                <td className="px-2 py-2.5">
-                  {m.role === "agent" ? (
-                    <span className="rounded-full bg-gold-500/15 px-2 py-0.5 text-[11px] font-medium text-gold-300 ring-1 ring-inset ring-gold-500/30">
-                      Agent
-                    </span>
-                  ) : (
-                    <MemberStatusBadge status={m.status} level={m.level} />
-                  )}
-                </td>
-                <td className="px-2 py-2.5 text-right">{m.tableHours}h</td>
-                <td className="px-2 py-2.5 text-right">{formatMoney(m.balance, m.currency)}</td>
-                <td className="px-2 py-2.5 text-right gold-text font-medium">{formatMoney(m.rake, m.currency)}</td>
-                <td className="px-2 py-2.5 text-right">
-                  <button
-                    onClick={() => setOpenId(m.id)}
-                    className="rounded-lg bg-white/5 px-3 py-1.5 text-xs font-medium text-emerald-soft ring-1 ring-inset ring-white/10 hover:bg-white/10"
-                  >
-                    Manage
-                  </button>
-                </td>
-              </tr>
+                  <ChevronRight size={18} className="shrink-0 text-ink-500" />
+                </button>
+              </li>
             ))}
-            {filtered.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-2 py-8 text-center text-sm text-ink-400">
-                  No members found.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+          </ul>
+
+          {/* Full table — tablet & desktop. */}
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-wide text-ink-500">
+                  <th className="px-2 py-2">Member</th>
+                  <th className="px-2 py-2">Status</th>
+                  <th className="px-2 py-2 text-right">Hours</th>
+                  <th className="px-2 py-2 text-right">Balance</th>
+                  <th className="px-2 py-2 text-right">Rake</th>
+                  <th className="px-2 py-2 text-right">Manage</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {filtered.map((m) => (
+                  <tr key={m.id} className="text-ink-200">
+                    <td className="px-2 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <Avatar name={m.fullName} size={28} />
+                        <div>
+                          <p className="font-medium text-ink-100">{m.fullName}</p>
+                          <p className="text-[11px] text-ink-500">@{m.username}{m.clubggId ? ` · ClubGG ${m.clubggId}` : ""}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-2 py-2.5">
+                      {m.role === "agent" ? (
+                        <span className="rounded-full bg-gold-500/15 px-2 py-0.5 text-[11px] font-medium text-gold-300 ring-1 ring-inset ring-gold-500/30">
+                          Agent
+                        </span>
+                      ) : (
+                        <MemberStatusBadge status={m.status} level={m.level} />
+                      )}
+                    </td>
+                    <td className="px-2 py-2.5 text-right">{m.tableHours}h</td>
+                    <td className="px-2 py-2.5 text-right">{formatMoney(m.balance, m.currency)}</td>
+                    <td className="px-2 py-2.5 text-right gold-text font-medium">{formatMoney(m.rake, m.currency)}</td>
+                    <td className="px-2 py-2.5 text-right">
+                      <button
+                        onClick={() => setOpenId(m.id)}
+                        className="rounded-lg bg-white/5 px-3 py-1.5 text-xs font-medium text-emerald-soft ring-1 ring-inset ring-white/10 hover:bg-white/10"
+                      >
+                        Manage
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
       {active && <ManageDrawer member={active} onClose={() => setOpenId(null)} />}
     </Card>

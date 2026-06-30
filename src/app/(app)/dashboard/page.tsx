@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getRepository } from "@/lib/data";
-import { Card } from "@/components/ui";
+import { Card, Badge } from "@/components/ui";
 import { DashboardCard, type DashboardCardProps } from "@/components/dashboard/DashboardCard";
 import { MemberStatusBadge } from "@/components/MemberStatusBadge";
 import { ClubCard } from "@/components/clubgg/ClubCard";
@@ -65,15 +65,27 @@ export default async function DashboardPage() {
   const next = nextLevel(myInputs);
   const progress = agentProgress({ level: level.level, directReferrals, vipReferrals });
 
-  // Role-aware big cards.
+  // Role-aware big cards. For non-players, "Network" highlights direct
+  // referrals (who they personally brought in) while "Manage Members" below
+  // shows the total downline — distinct numbers instead of a duplicate count.
+  const networkMetric = user.role === "player" ? totalNetwork : directReferrals;
+  const networkLabel =
+    user.role === "player"
+      ? totalNetwork === 1
+        ? "member in your tree"
+        : "members in your tree"
+      : directReferrals === 1
+        ? "direct referral"
+        : "direct referrals";
+
   const cards: DashboardCardProps[] = [
     {
       href: "/network",
       title: user.role === "player" ? "My Tree" : "Network",
       description: "Your members & downline",
       icon: NetworkIcon,
-      metric: formatNumber(totalNetwork),
-      metricLabel: totalNetwork === 1 ? "member in your tree" : "members in your tree",
+      metric: formatNumber(networkMetric),
+      metricLabel: networkLabel,
       tone: "emerald",
     },
     {
@@ -99,8 +111,11 @@ export default async function DashboardPage() {
       title: "Profile & Stats",
       description: "KYC, stats & settings",
       icon: UserIcon,
-      metric: level.name,
-      metricLabel: `Level ${level.level} · ${user.kycStatus}`,
+      // Levels track a player's climb toward agent status — once you ARE an
+      // agent/admin that ladder is no longer the relevant headline.
+      metric: user.role === "player" ? level.name : user.role === "agent" ? "Agent" : "Admin",
+      metricLabel:
+        user.role === "player" ? `Level ${level.level} · ${user.kycStatus}` : `${user.kycStatus} · view profile`,
       tone: "neutral",
     },
     {
@@ -157,7 +172,16 @@ export default async function DashboardPage() {
           </h1>
           <p className="text-sm text-ink-400 capitalize">{user.role} · {user.country}</p>
         </div>
-        <MemberStatusBadge status={memberStatus(myInputs)} level={level.level} />
+        {/* Player levels (New/Player/VIP) track progress toward becoming an
+            agent — once someone already holds a staff role, show that
+            instead of a now-meaningless player-progression badge. */}
+        {user.role === "player" ? (
+          <MemberStatusBadge status={memberStatus(myInputs)} level={level.level} />
+        ) : (
+          <Badge tone={user.role === "admin" ? "emerald" : "gold"}>
+            {user.role === "admin" ? "Admin" : "Agent"}
+          </Badge>
+        )}
       </div>
 
       {/* Balance hero */}

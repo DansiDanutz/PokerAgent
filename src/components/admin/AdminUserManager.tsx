@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { X, Search, BadgeCheck, Ban, Shield, Coins } from "lucide-react";
+import { X, Search, BadgeCheck, Ban, Shield, Coins, ChevronRight } from "lucide-react";
 import { Card, Button, Avatar, Badge } from "@/components/ui";
 import { setKyc, setAccountStatus, setUserRole, adminAdjustBalance } from "@/app/actions";
 import { formatMoney } from "@/lib/format";
@@ -75,50 +75,79 @@ export function AdminUserManager({ users }: { users: AdminUserRow[] }) {
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs uppercase tracking-wide text-ink-500">
-              <th className="px-2 py-2">User</th>
-              <th className="px-2 py-2">Role</th>
-              <th className="px-2 py-2">KYC</th>
-              <th className="px-2 py-2">Status</th>
-              <th className="px-2 py-2 text-right">Balance</th>
-              <th className="px-2 py-2 text-right">Manage</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/5">
+      {filtered.length === 0 ? (
+        <p className="py-8 text-center text-sm text-ink-400">No users found.</p>
+      ) : (
+        <>
+          {/* Card list — phones & narrow tablets. */}
+          <ul className="space-y-2 md:hidden">
             {filtered.map((u) => (
-              <tr key={u.id} className="text-ink-200">
-                <td className="px-2 py-2.5">
-                  <div className="flex items-center gap-2">
-                    <Avatar name={u.fullName} size={28} />
-                    <div>
-                      <p className="font-medium text-ink-100">{u.fullName}</p>
-                      <p className="text-[11px] text-ink-500">@{u.username}{u.clubggId ? ` · ${u.clubggId}` : ""}</p>
+              <li key={u.id}>
+                <button
+                  onClick={() => setOpenId(u.id)}
+                  className="flex w-full items-center gap-3 rounded-xl bg-white/[0.03] p-3 text-left ring-1 ring-inset ring-white/5 transition hover:bg-white/[0.06]"
+                >
+                  <Avatar name={u.fullName} size={36} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium text-ink-100">{u.fullName}</p>
+                    <p className="text-xs text-ink-500">@{u.username}{u.clubggId ? ` · ${u.clubggId}` : ""}</p>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      <Badge tone={u.role === "agent" ? "gold" : u.role === "admin" ? "emerald" : "neutral"}>{u.role}</Badge>
+                      <Badge tone={KYC_TONE[u.kycStatus]}>{u.kycStatus}</Badge>
+                      <Badge tone={STATUS_TONE[u.status]}>{u.status}</Badge>
+                      <span className="text-xs font-medium text-ink-300">{formatMoney(u.balance, u.currency)}</span>
                     </div>
                   </div>
-                </td>
-                <td className="px-2 py-2.5"><Badge tone={u.role === "agent" ? "gold" : u.role === "admin" ? "emerald" : "neutral"}>{u.role}</Badge></td>
-                <td className="px-2 py-2.5"><Badge tone={KYC_TONE[u.kycStatus]}>{u.kycStatus}</Badge></td>
-                <td className="px-2 py-2.5"><Badge tone={STATUS_TONE[u.status]}>{u.status}</Badge></td>
-                <td className="px-2 py-2.5 text-right">{formatMoney(u.balance, u.currency)}</td>
-                <td className="px-2 py-2.5 text-right">
-                  <button
-                    onClick={() => setOpenId(u.id)}
-                    className="rounded-lg bg-white/5 px-3 py-1.5 text-xs font-medium text-emerald-soft ring-1 ring-inset ring-white/10 hover:bg-white/10"
-                  >
-                    Manage
-                  </button>
-                </td>
-              </tr>
+                  <ChevronRight size={18} className="shrink-0 text-ink-500" />
+                </button>
+              </li>
             ))}
-            {filtered.length === 0 && (
-              <tr><td colSpan={6} className="px-2 py-8 text-center text-sm text-ink-400">No users found.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+          </ul>
+
+          {/* Full table — tablet & desktop. */}
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-wide text-ink-500">
+                  <th className="px-2 py-2">User</th>
+                  <th className="px-2 py-2">Role</th>
+                  <th className="px-2 py-2">KYC</th>
+                  <th className="px-2 py-2">Status</th>
+                  <th className="px-2 py-2 text-right">Balance</th>
+                  <th className="px-2 py-2 text-right">Manage</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {filtered.map((u) => (
+                  <tr key={u.id} className="text-ink-200">
+                    <td className="px-2 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <Avatar name={u.fullName} size={28} />
+                        <div>
+                          <p className="font-medium text-ink-100">{u.fullName}</p>
+                          <p className="text-[11px] text-ink-500">@{u.username}{u.clubggId ? ` · ${u.clubggId}` : ""}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-2 py-2.5"><Badge tone={u.role === "agent" ? "gold" : u.role === "admin" ? "emerald" : "neutral"}>{u.role}</Badge></td>
+                    <td className="px-2 py-2.5"><Badge tone={KYC_TONE[u.kycStatus]}>{u.kycStatus}</Badge></td>
+                    <td className="px-2 py-2.5"><Badge tone={STATUS_TONE[u.status]}>{u.status}</Badge></td>
+                    <td className="px-2 py-2.5 text-right">{formatMoney(u.balance, u.currency)}</td>
+                    <td className="px-2 py-2.5 text-right">
+                      <button
+                        onClick={() => setOpenId(u.id)}
+                        className="rounded-lg bg-white/5 px-3 py-1.5 text-xs font-medium text-emerald-soft ring-1 ring-inset ring-white/10 hover:bg-white/10"
+                      >
+                        Manage
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
       {active && <AdminDrawer user={active} onClose={() => setOpenId(null)} />}
     </Card>

@@ -72,7 +72,7 @@ export default async function ProfilePage() {
           <SectionTitle title="Stats & achievements" action={<Trophy size={16} className="text-gold-300" />} />
           <div className="grid grid-cols-3 gap-3">
             <Stat label="Hands" value={formatNumber(user.stats.handsPlayed)} />
-            <Stat label="Win rate" value={`${user.stats.winRateBb100}`} tone={user.stats.winRateBb100 >= 0 ? "up" : "down"} />
+            <Stat label="bb/100" value={`${user.stats.winRateBb100}`} tone={user.stats.winRateBb100 >= 0 ? "up" : "down"} />
             <Stat label="Sessions" value={formatNumber(user.stats.sessions)} />
           </div>
           <div className="mt-4 space-y-3">

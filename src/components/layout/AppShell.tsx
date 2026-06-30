@@ -122,18 +122,27 @@ function RoleCard({ user }: { user: User }) {
 }
 
 function TopBar({ user }: { user: User }) {
+  // An admin account doesn't hold poker chips, so a balance pill is noise —
+  // show their role instead, consistently on desktop and mobile.
+  const isAdmin = user.role === "admin";
   return (
     <header className="sticky top-0 z-20 flex items-center justify-between border-b border-white/5 bg-felt-950/80 px-4 py-3 backdrop-blur sm:px-6">
       <div className="lg:hidden">
         <Brand size="sm" />
       </div>
       <div className="hidden lg:block">
-        <p className="text-xs uppercase tracking-wide text-ink-500">Available balance</p>
-        <p className="text-lg font-semibold gold-text">{formatMoney(user.balance, user.currency)}</p>
+        {isAdmin ? (
+          <p className="text-sm font-semibold text-emerald-soft">Platform Admin</p>
+        ) : (
+          <>
+            <p className="text-xs uppercase tracking-wide text-ink-500">Available balance</p>
+            <p className="text-lg font-semibold gold-text">{formatMoney(user.balance, user.currency)}</p>
+          </>
+        )}
       </div>
       <div className="flex items-center gap-3">
         <div className="rounded-full bg-white/5 px-3 py-1 text-xs text-ink-300 ring-1 ring-inset ring-white/10 lg:hidden">
-          {formatMoney(user.balance, user.currency)}
+          {isAdmin ? "Admin" : formatMoney(user.balance, user.currency)}
         </div>
         <Link
           href="/notifications"

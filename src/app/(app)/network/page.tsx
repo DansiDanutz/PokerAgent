@@ -66,7 +66,31 @@ export default async function NetworkPage() {
 
       <Card>
         <SectionTitle title="Player leaderboard" subtitle="Ranked by rake generated" />
-        <div className="overflow-x-auto">
+
+        {/* Card list — phones & narrow tablets. */}
+        <ul className="space-y-2 md:hidden">
+          {players.map((n) => (
+            <li key={n.user.id} className="rounded-xl bg-white/[0.03] p-3 ring-1 ring-inset ring-white/5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate font-medium text-ink-100">
+                  {n.user.fullName}
+                  {n.user.role === "agent" && <span className="ml-1.5 text-[11px] text-gold-300">agent</span>}
+                </span>
+                <span className="shrink-0 text-sm font-semibold gold-text">{formatMoney(n.user.stats.rakeGenerated, n.user.currency)}</span>
+              </div>
+              <p className="mt-1 text-xs text-ink-500">
+                {formatNumber(n.user.stats.handsPlayed)} hands ·{" "}
+                <span className={n.user.stats.netProfit >= 0 ? "text-emerald-soft" : "text-[var(--color-danger)]"}>
+                  {formatMoney(n.user.stats.netProfit, n.user.currency)}
+                </span>{" "}
+                net · {formatMoney(n.user.balance, n.user.currency)} bal
+              </p>
+            </li>
+          ))}
+        </ul>
+
+        {/* Full table — tablet & desktop. */}
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs uppercase tracking-wide text-ink-500">
