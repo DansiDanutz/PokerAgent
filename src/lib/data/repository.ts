@@ -70,7 +70,14 @@ export interface Repository {
   // --- agent member management (authorized: agent must be the member's upline) ---
   creditMember(input: CreditMemberInput): Promise<Transaction>;
   setMemberTableHours(agentId: string, memberId: string, hours: number): Promise<User>;
-  promoteToAgent(agentId: string, memberId: string): Promise<User>;
+
+  // --- agent promotion: request (player) → approve (admin only) ---
+  /** A qualifying player asks to become an agent. */
+  requestAgentStatus(userId: string): Promise<User>;
+  /** Admin approves or rejects a pending agent request. Admin only. */
+  decideAgentRequest(adminId: string, userId: string, decision: "approved" | "rejected"): Promise<User>;
+  /** Pending agent requests for the admin queue. */
+  listAgentRequests(): Promise<User[]>;
   /** Approve/reject a pending transaction belonging to the agent's downline. */
   decideMemberTransaction(
     agentId: string,

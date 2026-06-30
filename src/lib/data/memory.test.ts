@@ -104,9 +104,21 @@ describe("MemoryRepository — agent member management", () => {
     expect(updated.stats.tableHours).toBe(6);
   });
 
-  it("promotes a downline player to agent", async () => {
-    const promoted = await repo.promoteToAgent("u_alex", "u_noah");
-    expect(promoted.role).toBe("agent");
+  it("agent promotion is request → admin approval (agents cannot self-promote)", async () => {
+    // Player requests…
+    const requested = await repo.requestAgentStatus("u_noah");
+    expect(requested.agentRequest).toBe("pending");
+    expect((await repo.listAgentRequests()).some((u) => u.id === "u_noah")).toBe(true);
+    // …a non-admin cannot approve…
+    await expect(repo.decideAgentRequest("u_arjun", "u_noah", "approved")).rejects.toThrow(/admin only/i);
+    // …only the admin can.
+    const approved = await repo.decideAgentRequest("u_admin", "u_noah", "approved");
+    expect(approved.role).toBe("agent");
+    expect(approved.agentRequest).toBe("none");
+  });
+
+  it("only semebitcoin@gmail.com can hold admin", async () => {
+    await expect(repo.setUserRole("u_admin", "u_arjun", "admin")).rejects.toThrow(/can be admin/i);
   });
 
   it("lets an upline agent approve a member's pending request", async () => {

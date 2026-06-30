@@ -28,6 +28,7 @@ import type {
 } from "./repository";
 import { AGENT_COMMISSION_RATE } from "./memory";
 import { buildNewMember } from "./newMember";
+import { ADMIN_EMAIL, isAdminEmail } from "@/lib/governance";
 
 type ProfileRow = {
   id: string;
@@ -44,6 +45,7 @@ type ProfileRow = {
   referral_code: string;
   clubgg_id: string | null;
   clubgg_nickname: string | null;
+  agent_request: "none" | "pending" | "rejected" | null;
   balance: number;
   currency: string;
   hands_played: number;
@@ -95,6 +97,7 @@ function toUser(r: ProfileRow): User {
     referralCode: r.referral_code,
     clubggId: r.clubgg_id ?? undefined,
     clubggNickname: r.clubgg_nickname ?? undefined,
+    agentRequest: r.agent_request ?? "none",
     balance: r.balance,
     currency: r.currency,
     createdAt: r.created_at,
@@ -347,14 +350,27 @@ export class SupabaseRepository implements Repository {
     return (await this.profile(memberId))!;
   }
 
-  async promoteToAgent(agentId: string, memberId: string): Promise<User> {
-    await this.assertUpline(agentId, memberId);
-    const member = await this.profile(memberId);
-    if (!member) throw new Error("User not found");
-    if (member.role === "admin") throw new Error("Cannot change an admin's role");
-    const { error } = await this.db.from("pa_profiles").update({ role: "agent" }).eq("id", memberId);
+  async requestAgentStatus(userId: string): Promise<User> {
+    const user = await this.profile(userId);
+    if (!user) throw new Error("User not found");
+    if (user.role !== "player") throw new Error("Only players can request agent status");
+    const { error } = await this.db.from("pa_profiles").update({ agent_request: "pending" }).eq("id", userId);
     if (error) throw new Error(error.message);
-    return (await this.profile(memberId))!;
+    return (await this.profile(userId))!;
+  }
+
+  async decideAgentRequest(adminId: string, userId: string, decision: "approved" | "rejected"): Promise<User> {
+    await this.assertAdmin(adminId);
+    const patch = decision === "approved" ? { role: "agent", agent_request: "none" } : { agent_request: "rejected" };
+    const { error } = await this.db.from("pa_profiles").update(patch).eq("id", userId);
+    if (error) throw new Error(error.message);
+    return (await this.profile(userId))!;
+  }
+
+  async listAgentRequests(): Promise<User[]> {
+    const { data, error } = await this.db.from("pa_profiles").select("*").eq("agent_request", "pending");
+    if (error) throw new Error(error.message);
+    return (data as ProfileRow[]).map(toUser);
   }
 
   async decideMemberTransaction(agentId: string, txId: string, status: "approved" | "rejected"): Promise<Transaction> {
@@ -415,13 +431,15 @@ export class SupabaseRepository implements Repository {
       if (!upline) throw new Error(`Unknown upline code "${input.uplineReferralCode}"`);
       uplineId = upline.id;
     }
-    const member = buildNewMember(input, this.newId("u"), uplineId, crypto.randomUUID());
+    // New members are always players; agent status comes via request → approval.
+    const member = buildNewMember({ ...input, role: "player" }, this.newId("u"), uplineId, crypto.randomUUID());
     const { error } = await this.db.from("pa_profiles").insert({
       id: member.id, username: member.username, full_name: member.fullName, email: member.email,
       role: member.role, status: member.status, kyc_status: member.kycStatus,
       upline_agent_id: member.uplineAgentId, referral_code: member.referralCode,
       clubgg_id: member.clubggId ?? null, clubgg_nickname: member.clubggNickname ?? null,
-      balance: member.balance, currency: member.currency, table_hours: 0, created_at: member.createdAt,
+      agent_request: "none", balance: member.balance, currency: member.currency,
+      table_hours: 0, created_at: member.createdAt,
     });
     if (error) throw new Error(error.message);
     return member;
@@ -447,6 +465,14 @@ export class SupabaseRepository implements Repository {
   async setUserRole(adminId: string, userId: string, role: Role): Promise<User> {
     await this.assertAdmin(adminId);
     if (userId === adminId) throw new Error("Cannot change your own role");
+    const target = await this.profile(userId);
+    if (!target) throw new Error("User not found");
+    if (role === "admin" && !isAdminEmail(target.email)) {
+      throw new Error(`Only ${ADMIN_EMAIL} can be admin`);
+    }
+    if (isAdminEmail(target.email) && role !== "admin") {
+      throw new Error("The platform admin cannot be demoted");
+    }
     const { error } = await this.db.from("pa_profiles").update({ role }).eq("id", userId);
     if (error) throw new Error(error.message);
     return (await this.profile(userId))!;

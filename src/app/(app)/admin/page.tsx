@@ -5,7 +5,8 @@ import { getRepository } from "@/lib/data";
 import { CLUB, clubIdConfigured } from "@/lib/clubgg";
 import { formatPercent } from "@/lib/format";
 import { Card, Stat, SectionTitle, Badge, Avatar } from "@/components/ui";
-import { approveTransaction, setKyc } from "@/app/actions";
+import { approveTransaction, setKyc, decideAgentRequest } from "@/app/actions";
+import { UserPlus } from "lucide-react";
 import { TX_META } from "@/components/wallet/txMeta";
 import { AdminUserManager, type AdminUserRow } from "@/components/admin/AdminUserManager";
 import { RosterTools } from "@/components/admin/RosterTools";
@@ -15,10 +16,11 @@ export default async function AdminPage() {
   if (user.role !== "admin") redirect("/dashboard");
 
   const repo = getRepository();
-  const [overview, pending, users] = await Promise.all([
+  const [overview, pending, users, agentRequests] = await Promise.all([
     repo.getAdminOverview(),
     repo.listPendingTransactions(),
     repo.listUsers(),
+    repo.listAgentRequests(),
   ]);
 
   const kycQueue = users.filter((u) => u.kycStatus === "pending");
@@ -139,6 +141,46 @@ export default async function AdminPage() {
                     </button>
                   </form>
                   <form action={setKyc.bind(null, u.id, "rejected")}>
+                    <button className="flex items-center gap-1 rounded-lg bg-[var(--color-danger)]/15 px-3 py-1.5 text-xs font-medium text-[var(--color-danger)] hover:bg-[var(--color-danger)]/25">
+                      <X size={14} /> Reject
+                    </button>
+                  </form>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      {/* Agent promotion requests */}
+      <Card>
+        <SectionTitle
+          title="Agent requests"
+          subtitle="Players asking to become agents — only you can approve"
+          action={<Badge tone={agentRequests.length ? "warning" : "emerald"}>{agentRequests.length} pending</Badge>}
+        />
+        {agentRequests.length === 0 ? (
+          <p className="py-6 text-center text-sm text-ink-400">No agent requests right now.</p>
+        ) : (
+          <ul className="divide-y divide-white/5">
+            {agentRequests.map((u) => (
+              <li key={u.id} className="flex items-center gap-3 py-3">
+                <div className="grid h-9 w-9 place-items-center rounded-full bg-gold-500/15">
+                  <UserPlus size={16} className="text-gold-300" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-ink-100">{u.fullName}</p>
+                  <p className="text-xs text-ink-500">
+                    @{u.username} · {u.stats.handsPlayed.toLocaleString()} hands · {u.stats.tableHours}h
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <form action={decideAgentRequest.bind(null, u.id, "approved")}>
+                    <button className="flex items-center gap-1 rounded-lg bg-emerald-glow/15 px-3 py-1.5 text-xs font-medium text-emerald-soft hover:bg-emerald-glow/25">
+                      <Check size={14} /> Approve
+                    </button>
+                  </form>
+                  <form action={decideAgentRequest.bind(null, u.id, "rejected")}>
                     <button className="flex items-center gap-1 rounded-lg bg-[var(--color-danger)]/15 px-3 py-1.5 text-xs font-medium text-[var(--color-danger)] hover:bg-[var(--color-danger)]/25">
                       <X size={14} /> Reject
                     </button>

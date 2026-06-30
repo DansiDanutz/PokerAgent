@@ -6,7 +6,7 @@ import { Card, SectionTitle, Button } from "@/components/ui";
 import { importRoster, type ImportResult } from "@/app/actions";
 import type { AdminUserRow } from "./AdminUserManager";
 
-const SAMPLE = "username,full_name,email,role,upline_code,clubgg_id,balance\njdoe,John Doe,jdoe@mail.com,player,PAGENT-ARJUN12,9001234,100";
+const SAMPLE = "username,full_name,email,upline_code,clubgg_id,balance\njdoe,John Doe,jdoe@mail.com,PAGENT-ARJUN12,9001234,100";
 
 function toCsv(users: AdminUserRow[]): string {
   const header = "username,full_name,email,role,kyc_status,status,clubgg_id,upline,balance_usd,rake_usd";
@@ -60,7 +60,7 @@ export function RosterTools({ users }: { users: AdminUserRow[] }) {
       <form action={action} className="space-y-2">
         <label className="flex items-center gap-2 text-xs font-medium text-ink-400">
           <FileSpreadsheet size={14} /> Paste CSV rows
-          <span className="text-ink-500">(username, full_name, email, role, upline_code, clubgg_id, balance)</span>
+          <span className="text-ink-500">(username, full_name, email, upline_code, clubgg_id, balance)</span>
         </label>
         <textarea
           name="csv"

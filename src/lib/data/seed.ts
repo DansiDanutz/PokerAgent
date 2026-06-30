@@ -23,7 +23,7 @@ function user(
     id,
     username,
     fullName,
-    email: `${username}@pokeragent.app`,
+    email: extra.email ?? `${username}@pokeragent.app`,
     phone: extra.phone,
     country: extra.country ?? "Romania",
     avatarUrl: extra.avatarUrl,
@@ -34,6 +34,7 @@ function user(
     referralCode,
     clubggId: extra.clubggId,
     clubggNickname: extra.clubggNickname ?? username,
+    agentRequest: extra.agentRequest ?? "none",
     balance,
     currency: C,
     createdAt: extra.createdAt ?? "2026-01-15T10:00:00.000Z",
@@ -51,6 +52,7 @@ function user(
 
 export const SEED_USERS: User[] = [
   user("u_admin", "admin", "Platform Admin", "admin", null, "ADMIN-ROOT", 0, {
+    email: "semebitcoin@gmail.com",
     kycStatus: "verified",
     stats: { handsPlayed: 0, netProfit: 0, rakeGenerated: 0, winRateBb100: 0, sessions: 0, tableHours: 0 },
   }),
@@ -63,7 +65,7 @@ export const SEED_USERS: User[] = [
 
   // Arjun's direct players
   user("u_alex", "alexplayer", "Alex Player", "player", "u_arjun", "PA-ALEX-77", 125_500, {
-    country: "Romania", clubggId: "8842014",
+    country: "Romania", clubggId: "8842014", agentRequest: "pending",
     stats: { handsPlayed: 18420, netProfit: 248_000, rakeGenerated: 21_500, winRateBb100: 4.1, sessions: 233, tableHours: 6 },
   }),
   user("u_sara", "saralin", "Sara Lin", "player", "u_arjun", "PA-SARA-21", 64_200, {

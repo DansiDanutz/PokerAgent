@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { X, Coins, Clock, ArrowUpCircle, Search } from "lucide-react";
+import { X, Coins, Clock, Search } from "lucide-react";
 import type { MemberStatus } from "@/types/domain";
 import { Card, Button, Avatar } from "@/components/ui";
 import { MemberStatusBadge } from "@/components/MemberStatusBadge";
-import { creditMember, logMemberHours, promoteMember } from "@/app/actions";
+import { creditMember, logMemberHours } from "@/app/actions";
 import { formatMoney } from "@/lib/format";
 
 export interface MemberRow {
@@ -168,14 +168,11 @@ function ManageDrawer({ member, onClose }: { member: MemberRow; onClose: () => v
           <p className="mt-1 text-[11px] text-ink-500">4h+ promotes a verified player to VIP.</p>
         </Section>
 
-        {/* Promote */}
+        {/* Agent promotion is request → admin approval, not an agent action. */}
         {member.role === "player" && (
-          <Section icon={<ArrowUpCircle size={15} />} title="Promote">
-            <form action={promoteMember.bind(null, member.id)}>
-              <Button type="submit" variant="gold" className="w-full">Promote to agent</Button>
-            </form>
-            <p className="mt-1 text-[11px] text-ink-500">They&apos;ll be able to recruit and manage their own players.</p>
-          </Section>
+          <p className="rounded-xl bg-white/[0.03] p-3 text-[11px] text-ink-500 ring-1 ring-inset ring-white/5">
+            Agent promotions are approved by the admin. Eligible players request it from their dashboard.
+          </p>
         )}
       </div>
     </div>

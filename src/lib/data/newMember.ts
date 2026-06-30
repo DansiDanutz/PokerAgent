@@ -38,6 +38,7 @@ export function buildNewMember(
     referralCode: deriveReferralCode(username, salt),
     clubggId: input.clubggId?.trim() || undefined,
     clubggNickname: username,
+    agentRequest: "none",
     balance,
     currency: "USD",
     createdAt: new Date().toISOString(),

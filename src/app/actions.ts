@@ -219,10 +219,19 @@ export async function logMemberHours(formData: FormData): Promise<void> {
   revalidatePath("/members");
 }
 
-export async function promoteMember(memberId: string): Promise<void> {
-  const agent = await requireManager();
-  await getRepository().promoteToAgent(agent.id, memberId);
-  revalidatePath("/members");
+/** A qualifying player requests agent status (admin approves). */
+export async function requestAgentStatus(): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Not signed in");
+  await getRepository().requestAgentStatus(user.id);
+  revalidatePath("/dashboard");
+}
+
+/** Admin approves/rejects a pending agent request. */
+export async function decideAgentRequest(userId: string, decision: "approved" | "rejected"): Promise<void> {
+  const admin = await requireAdmin();
+  await getRepository().decideAgentRequest(admin.id, userId, decision);
+  revalidatePath("/admin");
 }
 
 export async function decideMemberTransaction(
@@ -244,8 +253,6 @@ async function requireAdmin() {
 
 export type ImportResult = { created?: number; errors?: string[]; error?: string };
 
-const ROLE_VALUES = new Set(["player", "agent", "admin"]);
-
 /** Parse pasted CSV (username,full_name,email,role,upline_code,clubgg_id,balance) and create members. */
 export async function importRoster(_prev: ImportResult, formData: FormData): Promise<ImportResult> {
   const admin = await requireAdmin();
@@ -260,14 +267,14 @@ export async function importRoster(_prev: ImportResult, formData: FormData): Pro
   for (let i = 0; i < lines.length; i++) {
     const cells = lines[i].split(",").map((c) => c.trim());
     if (i === 0 && cells[0].toLowerCase() === "username") continue; // skip header
-    const [username, fullName, email, role, uplineCode, clubggId, balance] = cells;
+    // All imported members are players (agent status is request → approval).
+    const [username, fullName, email, uplineCode, clubggId, balance] = cells;
     if (!username) continue;
     try {
       await repo.createMember(admin.id, {
         username,
         fullName: fullName || username,
         email: email || `${username}@pokeragent.app`,
-        role: role && ROLE_VALUES.has(role.toLowerCase()) ? (role.toLowerCase() as "player" | "agent" | "admin") : "player",
         uplineReferralCode: uplineCode || undefined,
         clubggId: clubggId || undefined,
         balance: balance ? Math.round(Number(balance) * 100) : undefined,

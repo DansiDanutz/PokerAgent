@@ -23,6 +23,7 @@ import type {
   Repository,
 } from "./repository";
 import { buildNewMember } from "./newMember";
+import { ADMIN_EMAIL, isAdminEmail } from "@/lib/governance";
 import { SEED_NOTIFICATIONS, SEED_TRANSACTIONS, SEED_USERS } from "./seed";
 
 /** Agent commission as a fraction of downline rake (illustrative default). */
@@ -186,12 +187,31 @@ export class MemoryRepository implements Repository {
     return clone(member);
   }
 
-  async promoteToAgent(agentId: string, memberId: string): Promise<User> {
-    await this.assertUpline(agentId, memberId);
-    const member = this.users.get(memberId)!;
-    if (member.role === "admin") throw new Error("Cannot change an admin's role");
-    member.role = "agent";
-    return clone(member);
+  async requestAgentStatus(userId: string): Promise<User> {
+    const user = this.users.get(userId);
+    if (!user) throw new Error("User not found");
+    if (user.role !== "player") throw new Error("Only players can request agent status");
+    user.agentRequest = "pending";
+    return clone(user);
+  }
+
+  async decideAgentRequest(adminId: string, userId: string, decision: "approved" | "rejected"): Promise<User> {
+    this.assertAdmin(adminId);
+    const user = this.users.get(userId);
+    if (!user) throw new Error("User not found");
+    if (decision === "approved") {
+      user.role = "agent";
+      user.agentRequest = "none";
+    } else {
+      user.agentRequest = "rejected";
+    }
+    return clone(user);
+  }
+
+  async listAgentRequests(): Promise<User[]> {
+    return clone(
+      [...this.users.values()].filter((u) => u.agentRequest === "pending"),
+    );
   }
 
   async decideMemberTransaction(
@@ -357,7 +377,8 @@ export class MemoryRepository implements Repository {
       if (!upline) throw new Error(`Unknown upline code "${input.uplineReferralCode}"`);
       uplineId = upline.id;
     }
-    const member = buildNewMember(input, this.id("u"), uplineId, String(this.seq));
+    // New members are always players; agent status comes via request → approval.
+    const member = buildNewMember({ ...input, role: "player" }, this.id("u"), uplineId, String(this.seq));
     this.users.set(member.id, member);
     return clone(member);
   }
@@ -384,6 +405,12 @@ export class MemoryRepository implements Repository {
     const user = this.users.get(userId);
     if (!user) throw new Error("User not found");
     if (user.id === adminId) throw new Error("Cannot change your own role");
+    if (role === "admin" && !isAdminEmail(user.email)) {
+      throw new Error(`Only ${ADMIN_EMAIL} can be admin`);
+    }
+    if (isAdminEmail(user.email) && role !== "admin") {
+      throw new Error("The platform admin cannot be demoted");
+    }
     user.role = role;
     return clone(user);
   }

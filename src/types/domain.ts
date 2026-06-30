@@ -34,6 +34,8 @@ export interface User {
   clubggId?: string;
   /** ClubGG in-app nickname. */
   clubggNickname?: string;
+  /** Outstanding agent-promotion request state (admin approves). */
+  agentRequest?: AgentRequestStatus;
   /** Chip/credit balance in minor units (cents) of `currency`. */
   balance: number;
   currency: string;
@@ -57,6 +59,9 @@ export interface PlayerStats {
 
 /** Player status label, shown as a badge on every member of a tree. */
 export type MemberStatus = "new_player" | "player" | "vip_player";
+
+/** Whether a player has an outstanding request to become an agent. */
+export type AgentRequestStatus = "none" | "pending" | "rejected";
 
 export type TransactionType =
   | "deposit"

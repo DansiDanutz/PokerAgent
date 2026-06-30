@@ -29,6 +29,7 @@ import {
   agentProgress,
   LEVELS,
 } from "@/lib/levels";
+import { requestAgentStatus } from "@/app/actions";
 import type { NetworkNode } from "@/types/domain";
 import { formatMoney, formatMoneyCompact, formatNumber } from "@/lib/format";
 
@@ -178,10 +179,16 @@ export default async function DashboardPage() {
               <Target size={18} className="text-emerald-soft" />
               <h2 className="text-base font-semibold text-ink-100">Path to Agent</h2>
             </div>
-            {progress.eligible ? (
-              <span className="rounded-full bg-emerald-glow/15 px-3 py-1 text-xs font-medium text-emerald-soft">
-                Eligible — ask your agent to promote you 🎉
+            {user.agentRequest === "pending" ? (
+              <span className="rounded-full bg-[var(--color-warning)]/15 px-3 py-1 text-xs font-medium text-[var(--color-warning)]">
+                Request pending — awaiting admin approval
               </span>
+            ) : progress.eligible ? (
+              <form action={requestAgentStatus}>
+                <button className="rounded-full bg-emerald-glow/15 px-3 py-1 text-xs font-medium text-emerald-soft hover:bg-emerald-glow/25">
+                  {user.agentRequest === "rejected" ? "Request again" : "Request agent status 🎉"}
+                </button>
+              </form>
             ) : (
               <span className="text-xs text-ink-400">{progress.completed}/{progress.items.length} targets met</span>
             )}
