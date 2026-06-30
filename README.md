@@ -85,6 +85,27 @@ cp .env.example .env.local
 RLS enforces the role model: a user sees themselves; an agent sees their whole
 downline subtree; an admin sees everyone.
 
+## 🎴 ClubGG integration
+
+Poker Agent is built to manage a **[ClubGG](https://www.clubgg.com/)** club
+(the social-poker app powered by GGPoker). ClubGG has **no public management
+API**, so Poker Agent is your **book of record** — players, balances, rake and
+referrals live here, and chip top-ups are mirrored in the ClubGG agent panel.
+
+The platform's model maps directly onto ClubGG's:
+
+| ClubGG concept | Poker Agent |
+|---|---|
+| Club ID players enter to join | `NEXT_PUBLIC_CLUBGG_CLUB_ID` + the **Join Club** card |
+| Agent / superagent / subagent | the referral tree (`player` → `agent` → agent-of-agent) |
+| Agent sets chip balance | wallet ledger (deposit/withdraw approvals, transfers) |
+| Rake chain: union → club → agent → player | configurable `rakeSplit` + commission |
+| In-app member id / nickname | `clubggId` / `clubggNickname` on each user |
+
+Configure your club in [`src/lib/clubgg.ts`](src/lib/clubgg.ts) or via env
+(`NEXT_PUBLIC_CLUBGG_*`). Set your real numeric **Club ID** to replace the
+placeholder shown on the Join-Club card and admin settings.
+
 ## 🧱 Tech stack
 
 Next.js 15 (App Router) · React 19 · TypeScript · Tailwind CSS v4 · Recharts ·

@@ -5,6 +5,7 @@ import { getRepository } from "@/lib/data";
 import { Card, Stat, SectionTitle, Badge, Avatar } from "@/components/ui";
 import { BankrollChart } from "@/components/charts/BankrollChart";
 import { InviteCard } from "@/components/InviteCard";
+import { ClubCard } from "@/components/clubgg/ClubCard";
 import { bankrollSeries } from "@/lib/series";
 import { formatMoney, formatMoneyCompact, formatNumber, formatDate } from "@/lib/format";
 import { TX_META } from "@/components/wallet/txMeta";
@@ -97,8 +98,14 @@ export default async function DashboardPage() {
             </Link>
           </Card>
         ) : (
-          <InviteCard code={user.referralCode} />
+          <ClubCard />
         )}
+      </div>
+
+      {/* Club + invite row */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {user.role !== "player" && <ClubCard />}
+        <InviteCard code={user.referralCode} />
       </div>
 
       {/* Recent activity */}

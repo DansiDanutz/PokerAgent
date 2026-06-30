@@ -8,7 +8,9 @@ import {
   Bell,
   Lock,
 } from "lucide-react";
+import { Spade } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/session";
+import { CLUB } from "@/lib/clubgg";
 import { Card, Stat, SectionTitle, Badge, Avatar, ProgressBar } from "@/components/ui";
 import { formatMoney, formatNumber, formatDate } from "@/lib/format";
 import type { KycStatus } from "@/types/domain";
@@ -59,6 +61,9 @@ export default async function ProfilePage() {
             <InfoRow icon={<Phone size={16} />} label="Phone" value={user.phone ?? "—"} />
             <InfoRow icon={<MapPin size={16} />} label="Country" value={user.country ?? "—"} />
             <InfoRow icon={<ShieldCheck size={16} />} label="Referral code" value={user.referralCode} mono />
+            <InfoRow icon={<Spade size={16} />} label="ClubGG club" value={`${CLUB.clubName} · ${CLUB.clubId}`} />
+            <InfoRow icon={<Spade size={16} />} label="ClubGG member ID" value={user.clubggId ?? "Not linked"} mono />
+            <InfoRow icon={<Spade size={16} />} label="ClubGG nickname" value={user.clubggNickname ?? "—"} />
           </dl>
         </Card>
 

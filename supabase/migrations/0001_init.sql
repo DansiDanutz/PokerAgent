@@ -33,6 +33,8 @@ create table profiles (
   kyc_status kyc_status not null default 'unverified',
   upline_agent_id uuid references profiles (id) on delete set null,
   referral_code text unique not null,
+  clubgg_id text,
+  clubgg_nickname text,
   balance bigint not null default 0,
   currency text not null default 'USD',
   -- denormalized lifetime stats

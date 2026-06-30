@@ -30,6 +30,10 @@ export interface User {
   uplineAgentId: string | null;
   /** Personal referral code others can sign up with. */
   referralCode: string;
+  /** ClubGG in-app member id (for reconciling chips in the agent panel). */
+  clubggId?: string;
+  /** ClubGG in-app nickname. */
+  clubggNickname?: string;
   /** Chip/credit balance in minor units (cents) of `currency`. */
   balance: number;
   currency: string;

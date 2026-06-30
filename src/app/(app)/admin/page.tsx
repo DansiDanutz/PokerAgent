@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { Check, X, Users, ShieldCheck, Banknote, TrendingUp } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getRepository } from "@/lib/data";
+import { CLUB, clubIdConfigured } from "@/lib/clubgg";
+import { formatPercent } from "@/lib/format";
 import { Card, Stat, SectionTitle, Badge, Avatar } from "@/components/ui";
 import { approveTransaction } from "@/app/actions";
 import { TX_META } from "@/components/wallet/txMeta";
@@ -41,6 +43,24 @@ export default async function AdminPage() {
         <Stat label="Total balance" value={formatMoney(overview.totalBalance, overview.currency)} tone="gold" />
         <Stat label="Platform rake" value={formatMoney(overview.platformRake, overview.currency)} tone="up" />
       </div>
+
+      <Card glow="gold">
+        <SectionTitle title="ClubGG club settings" subtitle="Where your players join — synced manually in the ClubGG agent panel" />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Stat label="Club ID" value={CLUB.clubId} tone="gold" hint={clubIdConfigured() ? "Live" : "Set NEXT_PUBLIC_CLUBGG_CLUB_ID"} />
+          <Stat label="Club" value={CLUB.clubName} />
+          <Stat label="Union" value={CLUB.unionName} />
+          <Stat
+            label="Rake split (U/C/A)"
+            value={`${formatPercent(CLUB.rakeSplit.union, 0)} / ${formatPercent(CLUB.rakeSplit.club, 0)} / ${formatPercent(CLUB.rakeSplit.agent, 0)}`}
+          />
+        </div>
+        {!clubIdConfigured() && (
+          <p className="mt-3 text-xs text-[var(--color-warning)]">
+            ⚠ Club ID is a placeholder. Set <span className="font-mono">NEXT_PUBLIC_CLUBGG_CLUB_ID</span> to your real ClubGG club number.
+          </p>
+        )}
+      </Card>
 
       <Card>
         <SectionTitle
@@ -95,6 +115,7 @@ export default async function AdminPage() {
                 <th className="px-2 py-2">User</th>
                 <th className="px-2 py-2">Role</th>
                 <th className="px-2 py-2">KYC</th>
+                <th className="px-2 py-2">ClubGG ID</th>
                 <th className="px-2 py-2">Upline</th>
                 <th className="px-2 py-2 text-right">Balance</th>
                 <th className="px-2 py-2 text-right">Rake</th>
@@ -114,6 +135,7 @@ export default async function AdminPage() {
                   </td>
                   <td className="px-2 py-2.5"><Badge tone={u.role === "agent" ? "gold" : u.role === "admin" ? "emerald" : "neutral"}>{u.role}</Badge></td>
                   <td className="px-2 py-2.5"><Badge tone={KYC_TONE[u.kycStatus]}>{u.kycStatus}</Badge></td>
+                  <td className="px-2 py-2.5 font-mono text-ink-300">{u.clubggId ?? "—"}</td>
                   <td className="px-2 py-2.5 text-ink-400">{u.uplineAgentId ?? "—"}</td>
                   <td className="px-2 py-2.5 text-right">{formatMoney(u.balance, u.currency)}</td>
                   <td className="px-2 py-2.5 text-right gold-text font-medium">{formatMoney(u.stats.rakeGenerated, u.currency)}</td>
