@@ -49,7 +49,7 @@ export default async function AdminPage() {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Stat label="Club ID" value={CLUB.clubId} tone="gold" hint={clubIdConfigured() ? "Live" : "Set NEXT_PUBLIC_CLUBGG_CLUB_ID"} />
           <Stat label="Club" value={CLUB.clubName} />
-          <Stat label="Union" value={CLUB.unionName} />
+          <Stat label="Union" value={CLUB.unionName || "—"} />
           <Stat
             label="Rake split (U/C/A)"
             value={`${formatPercent(CLUB.rakeSplit.union, 0)} / ${formatPercent(CLUB.rakeSplit.club, 0)} / ${formatPercent(CLUB.rakeSplit.agent, 0)}`}

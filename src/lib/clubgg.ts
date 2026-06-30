@@ -39,9 +39,9 @@ const env = (key: string, fallback: string): string =>
  * real numeric id from your ClubGG agent panel.
  */
 export const CLUB: ClubConfig = {
-  clubId: env("NEXT_PUBLIC_CLUBGG_CLUB_ID", "000000"),
-  clubName: env("NEXT_PUBLIC_CLUBGG_CLUB_NAME", "Poker Agent Club"),
-  unionName: env("NEXT_PUBLIC_CLUBGG_UNION_NAME", "Poker Agent Union"),
+  clubId: env("NEXT_PUBLIC_CLUBGG_CLUB_ID", "358346"),
+  clubName: env("NEXT_PUBLIC_CLUBGG_CLUB_NAME", "Players Poker"),
+  unionName: env("NEXT_PUBLIC_CLUBGG_UNION_NAME", ""),
   inviteLink: env("NEXT_PUBLIC_CLUBGG_INVITE_LINK", "https://clubgg.app.link/mzgF64Tyo4b"),
   iosAppUrl: "https://apps.apple.com/app/clubgg/id1521240943",
   androidAppUrl: "https://play.google.com/store/apps/details?id=com.ggnetwork.clubgg",
@@ -53,7 +53,7 @@ export const CLUB: ClubConfig = {
   },
 };
 
-/** True when the operator hasn't set a real Club ID yet. */
+/** True when a real numeric Club ID is set. */
 export function clubIdConfigured(): boolean {
   return CLUB.clubId !== "000000" && /^\d{4,}$/.test(CLUB.clubId);
 }

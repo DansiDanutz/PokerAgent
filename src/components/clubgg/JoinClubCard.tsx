@@ -33,7 +33,9 @@ export function JoinClubCard(props: Props) {
         <SpadeMark size={36} />
         <div>
           <p className="text-sm font-semibold text-ink-100">{props.clubName}</p>
-          <p className="text-xs text-ink-500">on ClubGG · {props.unionName}</p>
+          <p className="text-xs text-ink-500">
+            on ClubGG{props.unionName ? ` · ${props.unionName}` : ""}
+          </p>
         </div>
       </div>
 
