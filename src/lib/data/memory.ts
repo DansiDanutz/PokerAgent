@@ -5,7 +5,9 @@
  */
 
 import type {
+  AccountStatus,
   AdminOverview,
+  KycStatus,
   NetworkNode,
   NetworkSummary,
   Notification,
@@ -333,5 +335,63 @@ export class MemoryRepository implements Repository {
         .filter((t) => t.status === "pending")
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     );
+  }
+
+  private assertAdmin(adminId: string): void {
+    if (this.users.get(adminId)?.role !== "admin") {
+      throw new Error("Not authorized: admin only");
+    }
+  }
+
+  async setKycStatus(adminId: string, userId: string, status: KycStatus): Promise<User> {
+    this.assertAdmin(adminId);
+    const user = this.users.get(userId);
+    if (!user) throw new Error("User not found");
+    user.kycStatus = status;
+    return clone(user);
+  }
+
+  async setAccountStatus(adminId: string, userId: string, status: AccountStatus): Promise<User> {
+    this.assertAdmin(adminId);
+    const user = this.users.get(userId);
+    if (!user) throw new Error("User not found");
+    if (user.role === "admin") throw new Error("Cannot change an admin's account status");
+    user.status = status;
+    return clone(user);
+  }
+
+  async setUserRole(adminId: string, userId: string, role: Role): Promise<User> {
+    this.assertAdmin(adminId);
+    const user = this.users.get(userId);
+    if (!user) throw new Error("User not found");
+    if (user.id === adminId) throw new Error("Cannot change your own role");
+    user.role = role;
+    return clone(user);
+  }
+
+  async adminAdjustBalance(
+    adminId: string,
+    userId: string,
+    amount: number,
+    note?: string,
+  ): Promise<Transaction> {
+    this.assertAdmin(adminId);
+    const user = this.users.get(userId);
+    if (!user) throw new Error("User not found");
+    if (amount === 0) throw new Error("Adjustment cannot be zero");
+    const tx: Transaction = {
+      id: this.id("t"),
+      userId,
+      type: "adjustment",
+      amount, // signed
+      currency: user.currency,
+      status: "completed",
+      note: note ?? "Admin adjustment",
+      createdAt: this.now(),
+      processedBy: adminId,
+    };
+    this.transactions.push(tx);
+    user.balance += amount;
+    return clone(tx);
   }
 }

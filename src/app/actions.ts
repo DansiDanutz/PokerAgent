@@ -233,3 +233,65 @@ export async function decideMemberTransaction(
   await getRepository().decideMemberTransaction(agent.id, txId, decision);
   revalidatePath("/members");
 }
+
+// --- Admin controls --------------------------------------------------------
+
+async function requireAdmin() {
+  const user = await getCurrentUser();
+  if (!user || user.role !== "admin") throw new Error("Admin only");
+  return user;
+}
+
+export async function setKyc(
+  userId: string,
+  status: "verified" | "rejected" | "pending",
+): Promise<void> {
+  const admin = await requireAdmin();
+  await getRepository().setKycStatus(admin.id, userId, status);
+  revalidatePath("/admin");
+}
+
+export async function setAccountStatus(
+  userId: string,
+  status: "active" | "suspended" | "banned",
+): Promise<void> {
+  const admin = await requireAdmin();
+  await getRepository().setAccountStatus(admin.id, userId, status);
+  revalidatePath("/admin");
+}
+
+const roleSchema = z.object({
+  userId: z.string().min(1),
+  role: z.enum(["player", "agent", "admin"]),
+});
+
+export async function setUserRole(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const parsed = roleSchema.safeParse({ userId: formData.get("userId"), role: formData.get("role") });
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  await getRepository().setUserRole(admin.id, parsed.data.userId, parsed.data.role);
+  revalidatePath("/admin");
+}
+
+const adjustSchema = z.object({
+  userId: z.string().min(1),
+  amount: z.coerce.number().refine((n) => n !== 0, "Amount cannot be zero"),
+  note: z.string().optional(),
+});
+
+export async function adminAdjustBalance(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const parsed = adjustSchema.safeParse({
+    userId: formData.get("userId"),
+    amount: formData.get("amount"),
+    note: formData.get("note") || undefined,
+  });
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  await getRepository().adminAdjustBalance(
+    admin.id,
+    parsed.data.userId,
+    Math.round(parsed.data.amount * 100),
+    parsed.data.note,
+  );
+  revalidatePath("/admin");
+}

@@ -5,7 +5,9 @@
  */
 
 import type {
+  AccountStatus,
   AdminOverview,
+  KycStatus,
   NetworkNode,
   NetworkSummary,
   Notification,
@@ -78,7 +80,17 @@ export interface Repository {
   listNotifications(userId: string): Promise<Notification[]>;
   markNotificationRead(id: string): Promise<void>;
 
-  // --- admin ---
+  // --- admin (admin-only; actorId must be an admin) ---
   getAdminOverview(): Promise<AdminOverview>;
   listPendingTransactions(): Promise<Transaction[]>;
+  setKycStatus(adminId: string, userId: string, status: KycStatus): Promise<User>;
+  setAccountStatus(adminId: string, userId: string, status: AccountStatus): Promise<User>;
+  setUserRole(adminId: string, userId: string, role: Role): Promise<User>;
+  /** Post a signed balance adjustment (positive credit / negative debit). */
+  adminAdjustBalance(
+    adminId: string,
+    userId: string,
+    amount: number,
+    note?: string,
+  ): Promise<Transaction>;
 }

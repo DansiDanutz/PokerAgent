@@ -122,3 +122,37 @@ describe("MemoryRepository — agent member management", () => {
     );
   });
 });
+
+describe("MemoryRepository — admin controls", () => {
+  let repo: MemoryRepository;
+  beforeEach(() => {
+    repo = new MemoryRepository();
+  });
+
+  it("verifies KYC", async () => {
+    const u = await repo.setKycStatus("u_admin", "u_sara", "verified");
+    expect(u.kycStatus).toBe("verified");
+  });
+
+  it("suspends and bans accounts", async () => {
+    expect((await repo.setAccountStatus("u_admin", "u_yuki", "suspended")).status).toBe("suspended");
+    expect((await repo.setAccountStatus("u_admin", "u_yuki", "banned")).status).toBe("banned");
+  });
+
+  it("changes a user's role (promote & demote)", async () => {
+    expect((await repo.setUserRole("u_admin", "u_alex", "agent")).role).toBe("agent");
+    expect((await repo.setUserRole("u_admin", "u_marco", "player")).role).toBe("player");
+  });
+
+  it("applies a signed balance adjustment", async () => {
+    const before = (await repo.getUser("u_tom"))!.balance;
+    await repo.adminAdjustBalance("u_admin", "u_tom", -5_000, "correction");
+    expect((await repo.getUser("u_tom"))!.balance).toBe(before - 5_000);
+  });
+
+  it("rejects admin actions from non-admins", async () => {
+    await expect(repo.setKycStatus("u_arjun", "u_sara", "verified")).rejects.toThrow(/admin only/i);
+    await expect(repo.setUserRole("u_arjun", "u_alex", "agent")).rejects.toThrow(/admin only/i);
+    await expect(repo.adminAdjustBalance("u_arjun", "u_tom", 100)).rejects.toThrow(/admin only/i);
+  });
+});

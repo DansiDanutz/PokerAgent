@@ -5,18 +5,10 @@ import { getRepository } from "@/lib/data";
 import { CLUB, clubIdConfigured } from "@/lib/clubgg";
 import { formatPercent } from "@/lib/format";
 import { Card, Stat, SectionTitle, Badge, Avatar } from "@/components/ui";
-import { approveTransaction } from "@/app/actions";
+import { approveTransaction, setKyc } from "@/app/actions";
 import { TX_META } from "@/components/wallet/txMeta";
+import { AdminUserManager, type AdminUserRow } from "@/components/admin/AdminUserManager";
 import { formatMoney, formatNumber, formatDate } from "@/lib/format";
-import type { KycStatus } from "@/types/domain";
-
-const KYC_TONE: Record<KycStatus, string> = {
-  verified: "emerald",
-  pending: "warning",
-  unverified: "neutral",
-  rejected: "danger",
-};
-
 export default async function AdminPage() {
   const user = (await getCurrentUser())!;
   if (user.role !== "admin") redirect("/dashboard");
@@ -27,6 +19,21 @@ export default async function AdminPage() {
     repo.listPendingTransactions(),
     repo.listUsers(),
   ]);
+
+  const kycQueue = users.filter((u) => u.kycStatus === "pending");
+  const adminRows: AdminUserRow[] = users.map((u) => ({
+    id: u.id,
+    fullName: u.fullName,
+    username: u.username,
+    role: u.role,
+    kycStatus: u.kycStatus,
+    status: u.status,
+    balance: u.balance,
+    currency: u.currency,
+    rake: u.stats.rakeGenerated,
+    clubggId: u.clubggId,
+    uplineAgentId: u.uplineAgentId,
+  }));
 
   return (
     <div className="space-y-6">
@@ -106,45 +113,43 @@ export default async function AdminPage() {
         )}
       </Card>
 
+      {/* KYC review queue */}
       <Card>
-        <SectionTitle title="User management" subtitle="All players, agents and admins" />
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-ink-500">
-                <th className="px-2 py-2">User</th>
-                <th className="px-2 py-2">Role</th>
-                <th className="px-2 py-2">KYC</th>
-                <th className="px-2 py-2">ClubGG ID</th>
-                <th className="px-2 py-2">Upline</th>
-                <th className="px-2 py-2 text-right">Balance</th>
-                <th className="px-2 py-2 text-right">Rake</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/5">
-              {users.map((u) => (
-                <tr key={u.id} className="text-ink-200">
-                  <td className="px-2 py-2.5">
-                    <div className="flex items-center gap-2">
-                      <Avatar name={u.fullName} src={u.avatarUrl} size={28} />
-                      <div>
-                        <p className="font-medium text-ink-100">{u.fullName}</p>
-                        <p className="text-[11px] text-ink-500">@{u.username}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-2 py-2.5"><Badge tone={u.role === "agent" ? "gold" : u.role === "admin" ? "emerald" : "neutral"}>{u.role}</Badge></td>
-                  <td className="px-2 py-2.5"><Badge tone={KYC_TONE[u.kycStatus]}>{u.kycStatus}</Badge></td>
-                  <td className="px-2 py-2.5 font-mono text-ink-300">{u.clubggId ?? "—"}</td>
-                  <td className="px-2 py-2.5 text-ink-400">{u.uplineAgentId ?? "—"}</td>
-                  <td className="px-2 py-2.5 text-right">{formatMoney(u.balance, u.currency)}</td>
-                  <td className="px-2 py-2.5 text-right gold-text font-medium">{formatMoney(u.stats.rakeGenerated, u.currency)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <SectionTitle
+          title="KYC review queue"
+          subtitle="Verify members to unlock Level 1+"
+          action={<Badge tone={kycQueue.length ? "warning" : "emerald"}>{kycQueue.length} pending</Badge>}
+        />
+        {kycQueue.length === 0 ? (
+          <p className="py-6 text-center text-sm text-ink-400">No KYC submissions waiting. 🎉</p>
+        ) : (
+          <ul className="divide-y divide-white/5">
+            {kycQueue.map((u) => (
+              <li key={u.id} className="flex items-center gap-3 py-3">
+                <Avatar name={u.fullName} src={u.avatarUrl} size={36} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-ink-100">{u.fullName}</p>
+                  <p className="text-xs text-ink-500">@{u.username}{u.clubggId ? ` · ClubGG ${u.clubggId}` : ""}</p>
+                </div>
+                <div className="flex gap-2">
+                  <form action={setKyc.bind(null, u.id, "verified")}>
+                    <button className="flex items-center gap-1 rounded-lg bg-emerald-glow/15 px-3 py-1.5 text-xs font-medium text-emerald-soft hover:bg-emerald-glow/25">
+                      <Check size={14} /> Verify
+                    </button>
+                  </form>
+                  <form action={setKyc.bind(null, u.id, "rejected")}>
+                    <button className="flex items-center gap-1 rounded-lg bg-[var(--color-danger)]/15 px-3 py-1.5 text-xs font-medium text-[var(--color-danger)] hover:bg-[var(--color-danger)]/25">
+                      <X size={14} /> Reject
+                    </button>
+                  </form>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </Card>
+
+      <AdminUserManager users={adminRows} />
     </div>
   );
 }
