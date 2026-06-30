@@ -5,7 +5,18 @@ import { ChevronRight, Users } from "lucide-react";
 import { clsx } from "clsx";
 import type { NetworkNode } from "@/types/domain";
 import { Avatar, Badge } from "@/components/ui";
+import { MemberStatusBadge } from "@/components/MemberStatusBadge";
+import { currentLevel, memberStatus } from "@/lib/levels";
 import { formatMoney, formatNumber } from "@/lib/format";
+
+function nodeStatus(node: NetworkNode) {
+  const inputs = {
+    kycVerified: node.user.kycStatus === "verified",
+    tableHours: node.user.stats.tableHours,
+    directReferrals: node.children.length,
+  };
+  return { status: memberStatus(inputs), level: currentLevel(inputs).level };
+}
 
 export function NetworkTree({ root }: { root: NetworkNode }) {
   return (
@@ -45,12 +56,12 @@ function TreeNode({ node, depth }: { node: NetworkNode; depth: number }) {
         </button>
         <Avatar name={node.user.fullName} src={node.user.avatarUrl} size={36} ring={isAgent} />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <p className="truncate text-sm font-medium text-ink-100">{node.user.fullName}</p>
-            {isAgent && <Badge tone="gold">agent</Badge>}
+            {isAgent ? <Badge tone="gold">agent</Badge> : <MemberStatusBadge {...nodeStatus(node)} />}
           </div>
           <p className="text-xs text-ink-500">
-            @{node.user.username} · {formatNumber(node.user.stats.handsPlayed)} hands
+            @{node.user.username} · {formatNumber(node.user.stats.handsPlayed)} hands · {node.user.stats.tableHours}h
           </p>
         </div>
         <div className="hidden text-right sm:block">

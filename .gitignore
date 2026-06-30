@@ -11,3 +11,8 @@ coverage/
 next-env.d.ts
 .vercel
 *.tsbuildinfo
+
+# local preview artifacts
+.playwright-mcp/
+*.png
+!docs/mockups/*.png

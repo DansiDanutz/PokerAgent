@@ -17,13 +17,17 @@ describe("MemoryRepository — network rollups", () => {
     // Marco's two players are nested under him → subtree size includes them.
     const marco = tree!.children.find((c) => c.user.id === "u_marco")!;
     expect(marco.subtreeSize).toBe(2);
-    expect(tree!.subtreeSize).toBe(5); // alex, sara, marco, diego, yuki
+    // alex now has 3 of his own players → his subtree is 3.
+    const alex = tree!.children.find((c) => c.user.id === "u_alex")!;
+    expect(alex.subtreeSize).toBe(3);
+    // alex(+3), sara, marco(+diego,yuki) = 8 descendants under arjun.
+    expect(tree!.subtreeSize).toBe(8);
   });
 
   it("summarizes commission from network rake", async () => {
     const summary = await repo.getNetworkSummary("u_arjun");
     expect(summary.directReferrals).toBe(3);
-    expect(summary.totalNetwork).toBe(5);
+    expect(summary.totalNetwork).toBe(8);
     expect(summary.commissionEarned).toBeGreaterThan(0);
   });
 });

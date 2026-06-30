@@ -1,44 +1,144 @@
 import Link from "next/link";
-import { ArrowDownToLine, ArrowUpFromLine, SendHorizontal, TrendingUp } from "lucide-react";
+import {
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  SendHorizontal,
+  Wallet as WalletIcon,
+  Network as NetworkIcon,
+  Calculator as CalcIcon,
+  User as UserIcon,
+  Bell,
+  Shield,
+  Target,
+  CheckCircle2,
+  Circle,
+} from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getRepository } from "@/lib/data";
-import { Card, Stat, SectionTitle, Badge, Avatar } from "@/components/ui";
-import { BankrollChart } from "@/components/charts/BankrollChart";
-import { InviteCard } from "@/components/InviteCard";
+import { Card } from "@/components/ui";
+import { DashboardCard, type DashboardCardProps } from "@/components/dashboard/DashboardCard";
+import { MemberStatusBadge } from "@/components/MemberStatusBadge";
 import { ClubCard } from "@/components/clubgg/ClubCard";
-import { bankrollSeries } from "@/lib/series";
-import { formatMoney, formatMoneyCompact, formatNumber, formatDate } from "@/lib/format";
-import { TX_META } from "@/components/wallet/txMeta";
+import { InviteCard } from "@/components/InviteCard";
+import {
+  currentLevel,
+  nextLevel,
+  memberStatus,
+  agentProgress,
+  LEVELS,
+} from "@/lib/levels";
+import type { NetworkNode } from "@/types/domain";
+import { formatMoney, formatMoneyCompact, formatNumber } from "@/lib/format";
+
+function nodeLevelInputs(node: NetworkNode) {
+  return {
+    kycVerified: node.user.kycStatus === "verified",
+    tableHours: node.user.stats.tableHours,
+    directReferrals: node.children.length,
+  };
+}
 
 export default async function DashboardPage() {
   const user = (await getCurrentUser())!;
   const repo = getRepository();
-  const [transactions, summary, overview] = await Promise.all([
-    repo.listTransactions(user.id),
-    user.role !== "player" ? repo.getNetworkSummary(user.id) : Promise.resolve(null),
+  const [tree, notifications, overview] = await Promise.all([
+    repo.getNetworkTree(user.id),
+    repo.listNotifications(user.id),
     user.role === "admin" ? repo.getAdminOverview() : Promise.resolve(null),
   ]);
 
-  const recent = transactions.slice(0, 5);
-  const series = bankrollSeries(user.stats.netProfit);
+  const directReferrals = tree?.children.length ?? 0;
+  const totalNetwork = tree?.subtreeSize ?? 0;
+  const vipReferrals =
+    tree?.children.filter((c) => memberStatus(nodeLevelInputs(c)) === "vip_player").length ?? 0;
+  const unread = notifications.filter((n) => !n.read).length;
+
+  const myInputs = {
+    kycVerified: user.kycStatus === "verified",
+    tableHours: user.stats.tableHours,
+    directReferrals,
+  };
+  const level = currentLevel(myInputs);
+  const next = nextLevel(myInputs);
+  const progress = agentProgress({ level: level.level, directReferrals, vipReferrals });
+
+  // Role-aware big cards.
+  const cards: DashboardCardProps[] = [
+    {
+      href: "/network",
+      title: user.role === "player" ? "My Tree" : "Network",
+      description: "Your members & downline",
+      icon: NetworkIcon,
+      metric: formatNumber(totalNetwork),
+      metricLabel: totalNetwork === 1 ? "member in your tree" : "members in your tree",
+      tone: "emerald",
+    },
+    {
+      href: "/wallet",
+      title: "Wallet",
+      description: "Deposit, withdraw, transfer",
+      icon: WalletIcon,
+      metric: formatMoneyCompact(user.balance, user.currency),
+      metricLabel: "tap to manage your balance",
+      tone: "gold",
+    },
+    {
+      href: "/calculator",
+      title: "Odds Calculator",
+      description: "Equity, outs & pot odds",
+      icon: CalcIcon,
+      metric: "Hold'em · Omaha",
+      metricLabel: "run the odds for any hand",
+      tone: "neutral",
+    },
+    {
+      href: "/profile",
+      title: "Profile & Stats",
+      description: "KYC, stats & settings",
+      icon: UserIcon,
+      metric: level.name,
+      metricLabel: `Level ${level.level} · ${user.kycStatus}`,
+      tone: "neutral",
+    },
+    {
+      href: "/notifications",
+      title: "Notifications",
+      description: "Alerts & updates",
+      icon: Bell,
+      metric: unread > 0 ? `${unread} new` : "All read",
+      metricLabel: "referrals, money & security",
+      tone: "neutral",
+      badge: unread > 0 ? String(unread) : undefined,
+    },
+  ];
+  if (user.role === "admin") {
+    cards.push({
+      href: "/admin",
+      title: "Admin Console",
+      description: "Approvals & management",
+      icon: Shield,
+      metric: overview ? formatNumber(overview.pendingTransactions) : "0",
+      metricLabel: "pending approvals",
+      tone: "gold",
+    });
+  }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-ink-100">
-          Hello, {user.fullName.split(" ")[0]} <span className="text-gold-300">👋</span>
-        </h1>
-        <p className="text-sm text-ink-400 capitalize">
-          {user.role} dashboard · {user.country}
-        </p>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-ink-100">
+            Hello, {user.fullName.split(" ")[0]} <span className="text-gold-300">👋</span>
+          </h1>
+          <p className="text-sm text-ink-400 capitalize">{user.role} · {user.country}</p>
+        </div>
+        <MemberStatusBadge status={memberStatus(myInputs)} level={level.level} />
       </div>
 
-      {/* Balance + quick actions */}
+      {/* Balance hero */}
       <Card glow="gold">
         <p className="text-xs uppercase tracking-wide text-ink-400">Your balance</p>
-        <p className="mt-1 text-4xl font-semibold gold-text">
-          {formatMoney(user.balance, user.currency)}
-        </p>
+        <p className="mt-1 text-4xl font-semibold gold-text">{formatMoney(user.balance, user.currency)}</p>
         <div className="mt-5 grid grid-cols-3 gap-3">
           <QuickAction href="/wallet" icon={<ArrowDownToLine size={18} />} label="Deposit" />
           <QuickAction href="/wallet" icon={<ArrowUpFromLine size={18} />} label="Withdraw" />
@@ -46,102 +146,85 @@ export default async function DashboardPage() {
         </div>
       </Card>
 
-      {/* Admin overview band */}
-      {overview && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Stat label="Total users" value={formatNumber(overview.totalUsers)} />
-          <Stat label="Agents" value={formatNumber(overview.totalAgents)} tone="gold" />
-          <Stat label="Pending KYC" value={formatNumber(overview.pendingKyc)} tone={overview.pendingKyc ? "down" : "default"} />
-          <Stat label="Pending cash" value={formatNumber(overview.pendingTransactions)} tone={overview.pendingTransactions ? "down" : "default"} />
-        </div>
+      {/* Path to Agent (players only) */}
+      {user.role === "player" && (
+        <Card glow="emerald">
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Target size={18} className="text-emerald-soft" />
+              <h2 className="text-base font-semibold text-ink-100">Path to Agent</h2>
+            </div>
+            {progress.eligible ? (
+              <span className="rounded-full bg-emerald-glow/15 px-3 py-1 text-xs font-medium text-emerald-soft">
+                Eligible — ask your agent to promote you 🎉
+              </span>
+            ) : (
+              <span className="text-xs text-ink-400">{progress.completed}/{progress.items.length} targets met</span>
+            )}
+          </div>
+
+          {/* Level ladder */}
+          <div className="mb-4 flex items-center gap-1">
+            {LEVELS.map((l) => (
+              <div key={l.level} className="flex-1">
+                <div
+                  className={`h-1.5 rounded-full ${l.level <= level.level ? "bg-emerald-glow" : "bg-white/10"}`}
+                  title={l.name}
+                />
+                <p className={`mt-1 text-[10px] ${l.level === level.level ? "text-emerald-soft" : "text-ink-500"}`}>
+                  L{l.level}
+                </p>
+              </div>
+            ))}
+          </div>
+          {next && (
+            <p className="mb-4 text-xs text-ink-400">
+              Next: <span className="text-ink-200">{next.name}</span> — {nextHint(next.level)}
+            </p>
+          )}
+
+          <ul className="space-y-2">
+            {progress.items.map((item) => (
+              <li key={item.key} className="flex items-center gap-3">
+                {item.done ? (
+                  <CheckCircle2 size={18} className="text-emerald-soft" />
+                ) : (
+                  <Circle size={18} className="text-ink-500" />
+                )}
+                <span className={`flex-1 text-sm ${item.done ? "text-ink-200" : "text-ink-400"}`}>{item.label}</span>
+                <span className="text-xs font-medium text-ink-300">
+                  {Math.min(item.current, item.target)}/{item.target}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
       )}
 
-      {/* Player/agent stat tiles */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="Hands played" value={formatNumber(user.stats.handsPlayed)} />
-        <Stat
-          label="Net profit"
-          value={formatMoneyCompact(user.stats.netProfit, user.currency)}
-          tone={user.stats.netProfit >= 0 ? "up" : "down"}
-        />
-        <Stat label="Win rate" value={`${user.stats.winRateBb100} bb/100`} tone={user.stats.winRateBb100 >= 0 ? "up" : "down"} />
-        <Stat label="Sessions" value={formatNumber(user.stats.sessions)} />
+      {/* Big card launcher */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+        {cards.map((c) => (
+          <DashboardCard key={c.href + c.title} {...c} />
+        ))}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Bankroll trend */}
-        <Card className="lg:col-span-2">
-          <SectionTitle
-            title="Bankroll trend"
-            subtitle="Net result over the last 6 months"
-            action={<Badge tone="emerald"><TrendingUp size={12} /> {user.stats.winRateBb100} bb/100</Badge>}
-          />
-          <BankrollChart data={series} />
-        </Card>
-
-        {/* Network summary (agent/admin) or invite (player) */}
-        {summary ? (
-          <Card>
-            <SectionTitle title="Your network" subtitle="Downline at a glance" />
-            <div className="space-y-3">
-              <RowStat label="Direct referrals" value={formatNumber(summary.directReferrals)} />
-              <RowStat label="Total network" value={formatNumber(summary.totalNetwork)} />
-              <RowStat label="Active players" value={formatNumber(summary.activePlayers)} />
-              <RowStat label="Network rake" value={formatMoney(summary.networkRake, summary.currency)} />
-              <RowStat label="Commission earned" value={formatMoney(summary.commissionEarned, summary.currency)} gold />
-            </div>
-            <Link
-              href="/network"
-              className="mt-4 block rounded-xl bg-white/5 py-2.5 text-center text-sm font-medium text-emerald-soft ring-1 ring-inset ring-white/10 hover:bg-white/10"
-            >
-              View network tree
-            </Link>
-          </Card>
-        ) : (
-          <ClubCard />
-        )}
-      </div>
-
-      {/* Club + invite row */}
+      {/* Club + invite */}
       <div className="grid gap-6 lg:grid-cols-2">
-        {user.role !== "player" && <ClubCard />}
+        <ClubCard />
         <InviteCard code={user.referralCode} />
       </div>
-
-      {/* Recent activity */}
-      <Card>
-        <SectionTitle
-          title="Recent activity"
-          action={<Link href="/wallet" className="text-sm text-emerald-soft hover:underline">View all</Link>}
-        />
-        <ul className="divide-y divide-white/5">
-          {recent.map((tx) => {
-            const meta = TX_META[tx.type];
-            const Icon = meta.icon;
-            return (
-              <li key={tx.id} className="flex items-center gap-3 py-3">
-                <div className={`grid h-9 w-9 place-items-center rounded-full ${meta.bg}`}>
-                  <Icon size={16} className={meta.color} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm text-ink-100">{meta.label}</p>
-                  <p className="text-xs text-ink-500">{formatDate(tx.createdAt)} · {tx.note ?? "—"}</p>
-                </div>
-                <div className="text-right">
-                  <p className={`text-sm font-semibold ${tx.amount >= 0 ? "text-emerald-soft" : "text-[var(--color-danger)]"}`}>
-                    {tx.amount >= 0 ? "+" : "−"}{formatMoney(Math.abs(tx.amount), tx.currency)}
-                  </p>
-                  <Badge tone={tx.status === "completed" ? "emerald" : tx.status === "pending" ? "warning" : "neutral"}>
-                    {tx.status}
-                  </Badge>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      </Card>
     </div>
   );
+}
+
+function nextHint(levelNumber: number): string {
+  const l = LEVELS.find((x) => x.level === levelNumber);
+  if (!l) return "";
+  const parts: string[] = [];
+  if (l.requires.kyc) parts.push("verify KYC");
+  if (l.requires.minTableHours) parts.push(`play ${l.requires.minTableHours}h`);
+  if (l.requires.minDirectReferrals) parts.push(`refer ${l.requires.minDirectReferrals}`);
+  return parts.join(" · ") || l.perk;
 }
 
 function QuickAction({ href, icon, label }: { href: string; icon: React.ReactNode; label: string }) {
@@ -153,14 +236,5 @@ function QuickAction({ href, icon, label }: { href: string; icon: React.ReactNod
       {icon}
       {label}
     </Link>
-  );
-}
-
-function RowStat({ label, value, gold }: { label: string; value: string; gold?: boolean }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-sm text-ink-400">{label}</span>
-      <span className={`text-sm font-semibold ${gold ? "gold-text" : "text-ink-100"}`}>{value}</span>
-    </div>
   );
 }

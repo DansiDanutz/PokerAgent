@@ -51,7 +51,12 @@ export interface PlayerStats {
   rakeGenerated: number;
   winRateBb100: number; // big blinds per 100 hands
   sessions: number;
+  /** Hours spent at a table — drives VIP status (4h) and higher levels. */
+  tableHours: number;
 }
+
+/** Player status label, shown as a badge on every member of a tree. */
+export type MemberStatus = "new_player" | "player" | "vip_player";
 
 export type TransactionType =
   | "deposit"
@@ -100,7 +105,7 @@ export interface Notification {
 export interface NetworkNode {
   user: Pick<
     User,
-    "id" | "username" | "fullName" | "avatarUrl" | "role" | "balance" | "currency" | "stats"
+    "id" | "username" | "fullName" | "avatarUrl" | "role" | "balance" | "currency" | "stats" | "kycStatus"
   >;
   /** Direct referrals. */
   children: NetworkNode[];

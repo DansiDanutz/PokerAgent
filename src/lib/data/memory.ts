@@ -95,6 +95,7 @@ export class MemoryRepository implements Repository {
         balance: user.balance,
         currency: user.currency,
         stats: user.stats,
+        kycStatus: user.kycStatus,
       },
       children,
       subtreeSize,

@@ -29,7 +29,7 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["player", "agent", "admin"] },
-  { href: "/network", label: "Network", icon: Network, roles: ["agent", "admin"] },
+  { href: "/network", label: "My Tree", icon: Network, roles: ["player", "agent", "admin"] },
   { href: "/wallet", label: "Wallet", icon: Wallet, roles: ["player", "agent", "admin"] },
   { href: "/calculator", label: "Calculator", icon: Calculator, roles: ["player", "agent", "admin"] },
   { href: "/admin", label: "Admin", icon: Shield, roles: ["admin"] },

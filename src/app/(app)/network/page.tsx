@@ -18,8 +18,6 @@ function flatten(node: NetworkNode, acc: NetworkNode[] = []): NetworkNode[] {
 
 export default async function NetworkPage() {
   const user = (await getCurrentUser())!;
-  if (user.role === "player") redirect("/dashboard");
-
   const repo = getRepository();
   const [tree, summary] = await Promise.all([
     repo.getNetworkTree(user.id),
