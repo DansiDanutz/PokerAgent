@@ -135,9 +135,16 @@ export const SEED_NOTIFICATIONS: Notification[] = [
   { id: "n6", userId: "u_arjun", kind: "referral", title: "Downline growth", body: "Marco Rossi added 2 new players this week.", read: false, createdAt: "2026-06-25T16:00:00.000Z" },
 ];
 
-/** Demo logins surfaced on the login screen so reviewers can try each role. */
+/**
+ * Shared demo password for the seeded accounts. The hash is precomputed (scrypt)
+ * so the in-memory store needs no hashing at boot. Real sign-ups get their own.
+ */
+export const SEED_PASSWORD = "PokerAgent2026!";
+export const SEED_PASSWORD_HASH =
+  "scrypt$dfac00b7c8c93c7ae9f43c58526eda95$9da3acae350b586805983ddd527776e341cb4f43124203685f28c7e175aaf07a8a3a8370b2ff45fe6e66db33ce4fabc8834186511207f5b72f29ecad8e3009aa";
+
+/** Non-admin demo accounts surfaced on the login screen for quick exploration. */
 export const DEMO_LOGINS = [
-  { label: "Player", userId: "u_alex", hint: "alexplayer" },
-  { label: "Agent", userId: "u_arjun", hint: "arjunmehta" },
-  { label: "Admin", userId: "u_admin", hint: "admin" },
+  { label: "Player", email: "alexplayer@pokeragent.app", hint: "alexplayer" },
+  { label: "Agent", email: "arjunmehta@pokeragent.app", hint: "arjunmehta" },
 ] as const;

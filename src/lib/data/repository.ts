@@ -44,6 +44,19 @@ export interface CreateMemberInput {
   balance?: number;
 }
 
+export interface CreateAccountInput {
+  username: string;
+  fullName: string;
+  email: string;
+  passwordHash: string;
+  uplineReferralCode?: string;
+}
+
+export interface AuthCredential {
+  id: string;
+  passwordHash: string;
+}
+
 export interface CreditMemberInput {
   /** The agent performing the credit (must be the member's upline). */
   agentId: string;
@@ -54,6 +67,14 @@ export interface CreditMemberInput {
 }
 
 export interface Repository {
+  // --- auth ---
+  /** Look up a credential by email (case-insensitive). Self-service signup. */
+  findAuthByEmail(email: string): Promise<AuthCredential | null>;
+  /** Create a self-service account (always a player) with a password hash. */
+  createAccount(input: CreateAccountInput): Promise<User>;
+  /** Replace a user's password hash. */
+  setPasswordHash(userId: string, passwordHash: string): Promise<void>;
+
   // --- users ---
   getUser(id: string): Promise<User | null>;
   getUserByReferralCode(code: string): Promise<User | null>;

@@ -16,6 +16,8 @@ import type {
   User,
 } from "@/types/domain";
 import type {
+  AuthCredential,
+  CreateAccountInput,
   CreateMemberInput,
   CreateTransferInput,
   CreditMemberInput,
@@ -24,7 +26,7 @@ import type {
 } from "./repository";
 import { buildNewMember } from "./newMember";
 import { ADMIN_EMAIL, isAdminEmail } from "@/lib/governance";
-import { SEED_NOTIFICATIONS, SEED_TRANSACTIONS, SEED_USERS } from "./seed";
+import { SEED_NOTIFICATIONS, SEED_PASSWORD_HASH, SEED_TRANSACTIONS, SEED_USERS } from "./seed";
 
 /** Agent commission as a fraction of downline rake (illustrative default). */
 export const AGENT_COMMISSION_RATE = 0.2;
@@ -35,12 +37,55 @@ export class MemoryRepository implements Repository {
   private users: Map<string, User>;
   private transactions: Transaction[];
   private notifications: Notification[];
+  private passwords: Map<string, string>;
   private seq = 1000;
 
   constructor() {
     this.users = new Map(clone(SEED_USERS).map((u) => [u.id, u]));
     this.transactions = clone(SEED_TRANSACTIONS);
     this.notifications = clone(SEED_NOTIFICATIONS);
+    // Every seeded account shares the demo password.
+    this.passwords = new Map(SEED_USERS.map((u) => [u.id, SEED_PASSWORD_HASH]));
+  }
+
+  async findAuthByEmail(email: string): Promise<AuthCredential | null> {
+    const norm = email.trim().toLowerCase();
+    for (const u of this.users.values()) {
+      if (u.email.toLowerCase() === norm) {
+        const passwordHash = this.passwords.get(u.id);
+        if (passwordHash) return { id: u.id, passwordHash };
+      }
+    }
+    return null;
+  }
+
+  async createAccount(input: CreateAccountInput): Promise<User> {
+    const existing = [...this.users.values()];
+    if (existing.some((u) => u.email.toLowerCase() === input.email.trim().toLowerCase())) {
+      throw new Error("An account with that email already exists");
+    }
+    if (existing.some((u) => u.username.toLowerCase() === input.username.trim().toLowerCase())) {
+      throw new Error("That username is taken");
+    }
+    let uplineId: string | null = null;
+    if (input.uplineReferralCode) {
+      const upline = await this.getUserByReferralCode(input.uplineReferralCode);
+      if (upline) uplineId = upline.id;
+    }
+    const member = buildNewMember(
+      { username: input.username, fullName: input.fullName, email: input.email, role: "player" },
+      this.id("u"),
+      uplineId,
+      String(this.seq),
+    );
+    this.users.set(member.id, member);
+    this.passwords.set(member.id, input.passwordHash);
+    return clone(member);
+  }
+
+  async setPasswordHash(userId: string, passwordHash: string): Promise<void> {
+    if (!this.users.has(userId)) throw new Error("User not found");
+    this.passwords.set(userId, passwordHash);
   }
 
   private id(prefix: string): string {

@@ -67,6 +67,41 @@ describe("MemoryRepository — transfers", () => {
   });
 });
 
+describe("MemoryRepository — auth", () => {
+  let repo: MemoryRepository;
+  beforeEach(() => {
+    repo = new MemoryRepository();
+  });
+
+  it("finds a seeded credential by email (case-insensitive)", async () => {
+    const cred = await repo.findAuthByEmail("SEMEBITCOIN@gmail.com");
+    expect(cred?.id).toBe("u_admin");
+    expect(cred?.passwordHash).toMatch(/^scrypt\$/);
+  });
+
+  it("creates a self-service account as a player with a password", async () => {
+    const user = await repo.createAccount({
+      username: "fresh",
+      fullName: "Fresh Face",
+      email: "fresh@face.com",
+      passwordHash: "scrypt$aa$bb",
+      uplineReferralCode: "PAGENT-ARJUN12",
+    });
+    expect(user.role).toBe("player");
+    expect(user.uplineAgentId).toBe("u_arjun");
+    expect((await repo.findAuthByEmail("fresh@face.com"))?.id).toBe(user.id);
+  });
+
+  it("rejects duplicate email or username on signup", async () => {
+    await expect(
+      repo.createAccount({ username: "x", fullName: "X", email: "semebitcoin@gmail.com", passwordHash: "h" }),
+    ).rejects.toThrow(/email already exists/i);
+    await expect(
+      repo.createAccount({ username: "alexplayer", fullName: "X", email: "x@x.com", passwordHash: "h" }),
+    ).rejects.toThrow(/username is taken/i);
+  });
+});
+
 describe("MemoryRepository — agent member management", () => {
   let repo: MemoryRepository;
   beforeEach(() => {

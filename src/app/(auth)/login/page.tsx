@@ -1,7 +1,5 @@
 import { Brand } from "@/components/brand";
 import { Card } from "@/components/ui";
-import { DEMO_LOGINS } from "@/lib/data/seed";
-import { loginAs } from "@/app/actions";
 import { LoginForm } from "./LoginForm";
 
 export default function LoginPage() {
@@ -18,26 +16,6 @@ export default function LoginPage() {
         </p>
         <div className="mt-5">
           <LoginForm />
-        </div>
-      </Card>
-
-      <Card glow="gold">
-        <p className="text-sm font-medium text-gold-300">Explore each perspective</p>
-        <p className="mt-1 text-xs text-ink-400">
-          One click to sign in as a player, an agent, or the admin — no password needed in the demo.
-        </p>
-        <div className="mt-4 grid grid-cols-3 gap-2">
-          {DEMO_LOGINS.map((d) => (
-            <form key={d.userId} action={loginAs.bind(null, d.userId)}>
-              <button
-                type="submit"
-                className="w-full rounded-xl bg-white/5 px-2 py-3 text-center ring-1 ring-inset ring-white/10 transition hover:bg-white/10"
-              >
-                <span className="block text-sm font-semibold text-ink-100">{d.label}</span>
-                <span className="block text-[11px] text-ink-500">@{d.hint}</span>
-              </button>
-            </form>
-          ))}
         </div>
       </Card>
 

@@ -16,6 +16,7 @@ export function RegisterForm() {
       <Field name="fullName" label="Full name" placeholder="Alex Player" autoComplete="name" />
       <Field name="username" label="Username" placeholder="alexplayer" autoComplete="username" />
       <Field name="email" label="Email" placeholder="alex@email.com" type="email" autoComplete="email" />
+      <Field name="password" label="Password" placeholder="At least 8 characters" type="password" autoComplete="new-password" />
       <Field name="referralCode" label="Invite code (optional)" placeholder="PAGENT-ARJUN12" />
       {state.error && (
         <p className="text-xs text-[var(--color-danger)]" role="alert">

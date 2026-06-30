@@ -10,28 +10,25 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getRepository } from "@/lib/data";
 import { clearSession, getCurrentUser, setSession } from "@/lib/auth/session";
-
-export async function loginAs(userId: string): Promise<void> {
-  const user = await getRepository().getUser(userId);
-  if (!user) throw new Error("Unknown demo user");
-  await setSession(user.id);
-  redirect("/dashboard");
-}
+import { hashPassword, verifyPassword } from "@/lib/auth/password";
 
 const loginSchema = z.object({
-  identifier: z.string().min(1, "Enter your username or email"),
+  email: z.string().email("Enter a valid email"),
+  password: z.string().min(1, "Enter your password"),
 });
 
 export async function login(formData: FormData): Promise<void> {
-  const parsed = loginSchema.safeParse({ identifier: formData.get("identifier") });
+  const parsed = loginSchema.safeParse({
+    email: formData.get("email"),
+    password: formData.get("password"),
+  });
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);
-  const q = parsed.data.identifier.trim().toLowerCase();
-  const users = await getRepository().listUsers();
-  const match = users.find(
-    (u) => u.username.toLowerCase() === q || u.email.toLowerCase() === q,
-  );
-  if (!match) throw new Error("No account found. Try a demo login below.");
-  await setSession(match.id);
+  const cred = await getRepository().findAuthByEmail(parsed.data.email);
+  // Same error whether the email is unknown or the password is wrong.
+  if (!cred || !verifyPassword(parsed.data.password, cred.passwordHash)) {
+    throw new Error("Invalid email or password");
+  }
+  await setSession(cred.id);
   redirect("/dashboard");
 }
 
@@ -90,6 +87,7 @@ const registerSchema = z.object({
   fullName: z.string().min(2, "Enter your full name"),
   username: z.string().min(3, "Username must be at least 3 characters"),
   email: z.string().email("Enter a valid email"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
   referralCode: z.string().optional(),
 });
 
@@ -98,14 +96,46 @@ export async function register(formData: FormData): Promise<void> {
     fullName: formData.get("fullName"),
     username: formData.get("username"),
     email: formData.get("email"),
+    password: formData.get("password"),
     referralCode: formData.get("referralCode") || undefined,
   });
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);
-  // In the in-memory demo we route new sign-ups to the player persona so the
-  // experience is explorable immediately. Production register() creates a
-  // Supabase auth user (profile row is created by the DB trigger).
-  await setSession("u_alex");
+  // Self-service signups are always players; agent status is requested later.
+  const user = await getRepository().createAccount({
+    username: parsed.data.username,
+    fullName: parsed.data.fullName,
+    email: parsed.data.email,
+    passwordHash: hashPassword(parsed.data.password),
+    uplineReferralCode: parsed.data.referralCode,
+  });
+  await setSession(user.id);
   redirect("/dashboard");
+}
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Enter your current password"),
+  newPassword: z.string().min(8, "New password must be at least 8 characters"),
+});
+
+export async function changePassword(_prev: FormState, formData: FormData): Promise<FormState> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) throw new Error("Not signed in");
+    const parsed = changePasswordSchema.safeParse({
+      currentPassword: formData.get("currentPassword"),
+      newPassword: formData.get("newPassword"),
+    });
+    if (!parsed.success) return { error: parsed.error.issues[0].message };
+    const repo = getRepository();
+    const cred = await repo.findAuthByEmail(user.email);
+    if (!cred || !verifyPassword(parsed.data.currentPassword, cred.passwordHash)) {
+      return { error: "Current password is incorrect" };
+    }
+    await repo.setPasswordHash(user.id, hashPassword(parsed.data.newPassword));
+    return { error: undefined };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Could not change password" };
+  }
 }
 
 const transferSchema = z.object({

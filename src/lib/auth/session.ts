@@ -1,28 +1,57 @@
 /**
  * Session handling (server-only).
  *
- * For the zero-setup demo this is a signed-cookie session holding the user id.
- * In production with Supabase auth, swap `getCurrentUser` to read the Supabase
- * session — the rest of the app depends only on the returned `User`.
+ * The session cookie holds the user id plus an HMAC signature, so it can't be
+ * forged client-side. The signing key is derived from SESSION_SECRET, falling
+ * back to the Supabase service-role key (already a server-only secret), then a
+ * dev constant for local zero-config runs.
  */
 
 import "server-only";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { getRepository } from "@/lib/data";
 import type { Role, User } from "@/types/domain";
 
 const COOKIE = "pa_session";
 
+function signingKey(): string {
+  return (
+    process.env.SESSION_SECRET ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    "pokeragent-dev-session-secret"
+  );
+}
+
+function sign(userId: string): string {
+  const sig = createHmac("sha256", signingKey()).update(userId).digest("base64url");
+  return `${userId}.${sig}`;
+}
+
+function verify(token: string): string | null {
+  const dot = token.lastIndexOf(".");
+  if (dot <= 0) return null;
+  const userId = token.slice(0, dot);
+  const sig = token.slice(dot + 1);
+  const expected = createHmac("sha256", signingKey()).update(userId).digest("base64url");
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+  return userId;
+}
+
 export async function getSessionUserId(): Promise<string | null> {
   const store = await cookies();
-  return store.get(COOKIE)?.value ?? null;
+  const token = store.get(COOKIE)?.value;
+  return token ? verify(token) : null;
 }
 
 export async function setSession(userId: string): Promise<void> {
   const store = await cookies();
-  store.set(COOKIE, userId, {
+  store.set(COOKIE, sign(userId), {
     httpOnly: true,
     sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: 60 * 60 * 24 * 7,
   });
@@ -39,7 +68,6 @@ export async function getCurrentUser(): Promise<User | null> {
   return getRepository().getUser(id);
 }
 
-/** Throws-style guard for server components: returns the user or null to redirect. */
 export async function requireRole(roles: Role[]): Promise<User | null> {
   const user = await getCurrentUser();
   if (!user) return null;

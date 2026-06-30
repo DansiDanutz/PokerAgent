@@ -12,6 +12,7 @@ import { Spade } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/session";
 import { CLUB } from "@/lib/clubgg";
 import { Card, Stat, SectionTitle, Badge, Avatar, ProgressBar } from "@/components/ui";
+import { ChangePassword } from "@/components/profile/ChangePassword";
 import { formatMoney, formatNumber, formatDate } from "@/lib/format";
 import type { KycStatus } from "@/types/domain";
 
@@ -88,14 +89,20 @@ export default async function ProfilePage() {
         </Card>
       </div>
 
-      <Card>
-        <SectionTitle title="Settings & security" />
-        <div className="space-y-2">
-          <SettingRow icon={<Lock size={16} />} label="Two-factor authentication" status="Enabled" tone="emerald" />
-          <SettingRow icon={<Bell size={16} />} label="Push notifications" status="On" tone="emerald" />
-          <SettingRow icon={<ShieldCheck size={16} />} label="Responsible play limits" status="Configured" tone="gold" />
-        </div>
-      </Card>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <SectionTitle title="Settings & security" />
+          <div className="space-y-2">
+            <SettingRow icon={<Lock size={16} />} label="Two-factor authentication" status="Enabled" tone="emerald" />
+            <SettingRow icon={<Bell size={16} />} label="Push notifications" status="On" tone="emerald" />
+            <SettingRow icon={<ShieldCheck size={16} />} label="Responsible play limits" status="Configured" tone="gold" />
+          </div>
+        </Card>
+        <Card>
+          <SectionTitle title="Account" subtitle="Keep your sign-in secure" />
+          <ChangePassword />
+        </Card>
+      </div>
     </div>
   );
 }

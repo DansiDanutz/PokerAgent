@@ -20,6 +20,8 @@ import type {
   User,
 } from "@/types/domain";
 import type {
+  AuthCredential,
+  CreateAccountInput,
   CreateMemberInput,
   CreateTransferInput,
   CreditMemberInput,
@@ -176,6 +178,49 @@ export class SupabaseRepository implements Repository {
 
   private newId(prefix: string): string {
     return `${prefix}_${crypto.randomUUID()}`;
+  }
+
+  async findAuthByEmail(email: string): Promise<AuthCredential | null> {
+    const { data, error } = await this.db
+      .from("pa_profiles").select("id, password_hash").ilike("email", email.trim()).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data || !(data as { password_hash: string | null }).password_hash) return null;
+    return { id: (data as { id: string }).id, passwordHash: (data as { password_hash: string }).password_hash };
+  }
+
+  async createAccount(input: CreateAccountInput): Promise<User> {
+    const norm = input.email.trim().toLowerCase();
+    const { data: dupEmail } = await this.db.from("pa_profiles").select("id").ilike("email", norm).maybeSingle();
+    if (dupEmail) throw new Error("An account with that email already exists");
+    const { data: dupUser } = await this.db
+      .from("pa_profiles").select("id").ilike("username", input.username.trim()).maybeSingle();
+    if (dupUser) throw new Error("That username is taken");
+    let uplineId: string | null = null;
+    if (input.uplineReferralCode) {
+      const upline = await this.getUserByReferralCode(input.uplineReferralCode);
+      if (upline) uplineId = upline.id;
+    }
+    const member = buildNewMember(
+      { username: input.username, fullName: input.fullName, email: input.email, role: "player" },
+      this.newId("u"),
+      uplineId,
+      crypto.randomUUID(),
+    );
+    const { error } = await this.db.from("pa_profiles").insert({
+      id: member.id, username: member.username, full_name: member.fullName, email: member.email,
+      role: "player", status: member.status, kyc_status: member.kycStatus,
+      upline_agent_id: member.uplineAgentId, referral_code: member.referralCode,
+      clubgg_id: null, clubgg_nickname: member.clubggNickname ?? null, agent_request: "none",
+      balance: 0, currency: member.currency, table_hours: 0, created_at: member.createdAt,
+      password_hash: input.passwordHash,
+    });
+    if (error) throw new Error(error.message);
+    return member;
+  }
+
+  async setPasswordHash(userId: string, passwordHash: string): Promise<void> {
+    const { error } = await this.db.from("pa_profiles").update({ password_hash: passwordHash }).eq("id", userId);
+    if (error) throw new Error(error.message);
   }
 
   async getUser(id: string): Promise<User | null> {
