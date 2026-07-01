@@ -136,8 +136,13 @@ export const SEED_NOTIFICATIONS: Notification[] = [
 ];
 
 /**
- * Shared demo password for the seeded accounts. The hash is precomputed (scrypt)
- * so the in-memory store needs no hashing at boot. Real sign-ups get their own.
+ * Shared demo password for the seeded NON-ADMIN accounts only (player/agent
+ * personas offered as one-click "Try as..." logins). The hash is precomputed
+ * (scrypt) so the in-memory store needs no hashing at boot. Real sign-ups get
+ * their own. This module is imported by a client component (LoginForm) for
+ * the demo buttons, so it must never hold a real credential — the seeded
+ * admin account (u_admin) deliberately does NOT use this password; see
+ * MemoryRepository's constructor, which mints it a random one at boot.
  */
 export const SEED_PASSWORD = "PokerAgent2026!";
 export const SEED_PASSWORD_HASH =

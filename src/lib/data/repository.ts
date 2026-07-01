@@ -174,7 +174,8 @@ export interface Repository {
 
   // --- notifications ---
   listNotifications(userId: string): Promise<Notification[]>;
-  markNotificationRead(id: string): Promise<void>;
+  /** Marks a notification read — only its owner may do this. */
+  markNotificationRead(id: string, userId: string): Promise<void>;
 
   // --- admin (admin-only; actorId must be an admin) ---
   getAdminOverview(): Promise<AdminOverview>;

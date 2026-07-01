@@ -7,10 +7,23 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { z } from "zod";
 import { getRepository } from "@/lib/data";
 import { clearSession, getCurrentUser, setSession } from "@/lib/auth/session";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
+import { assertNotLockedOut, clearFailedAttempts, recordFailedAttempt } from "@/lib/auth/rateLimit";
+
+/**
+ * Upper bound (in dollars, pre-cents) for any single money-schema field.
+ * Combined with `.finite()`, this keeps `Infinity`/huge values out of
+ * `Math.round(amount * 100)` before it ever reaches the repository — the
+ * repository's own checks (and now DB-level CHECK constraints) are a second
+ * line of defense, not the only one.
+ */
+const MAX_MONEY_AMOUNT = 1_000_000;
+const moneyAmount = (label = "Amount") =>
+  z.coerce.number().finite(`${label} must be a finite number`).max(MAX_MONEY_AMOUNT, `${label} is too large`);
 
 const loginSchema = z.object({
   email: z.string().email("Enter a valid email"),
@@ -23,11 +36,15 @@ export async function login(formData: FormData): Promise<void> {
     password: formData.get("password"),
   });
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  const rateLimitKey = `login:${parsed.data.email.trim().toLowerCase()}`;
+  assertNotLockedOut(rateLimitKey);
   const cred = await getRepository().findAuthByEmail(parsed.data.email);
   // Same error whether the email is unknown or the password is wrong.
   if (!cred || !verifyPassword(parsed.data.password, cred.passwordHash)) {
+    recordFailedAttempt(rateLimitKey);
     throw new Error("Invalid email or password");
   }
+  clearFailedAttempts(rateLimitKey);
   await setSession(cred.id);
   redirect("/dashboard");
 }
@@ -91,6 +108,18 @@ const registerSchema = z.object({
   referralCode: z.string().optional(),
 });
 
+/** Best-effort caller IP from the headers Vercel/proxies set — falls back to a shared key locally. */
+async function clientIp(): Promise<string> {
+  const h = await headers();
+  return h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "unknown";
+}
+
+// Registration has no existing account to key a limiter off of, so it's
+// throttled per source IP instead — looser than login/password (shared
+// office/NAT IPs submitting a handful of real signups shouldn't get
+// penalized), but still caps scripted mass account creation.
+const REGISTER_THRESHOLDS = { windowMs: 60 * 60 * 1000, maxAttempts: 10, lockoutMs: 30 * 60 * 1000 };
+
 export async function register(formData: FormData): Promise<void> {
   const parsed = registerSchema.safeParse({
     fullName: formData.get("fullName"),
@@ -100,6 +129,9 @@ export async function register(formData: FormData): Promise<void> {
     referralCode: formData.get("referralCode") || undefined,
   });
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  const rateLimitKey = `register:${await clientIp()}`;
+  assertNotLockedOut(rateLimitKey);
+  recordFailedAttempt(rateLimitKey, REGISTER_THRESHOLDS);
   // Self-service signups are always players; agent status is requested later.
   const user = await getRepository().createAccount({
     username: parsed.data.username,
@@ -126,11 +158,15 @@ export async function changePassword(_prev: FormState, formData: FormData): Prom
       newPassword: formData.get("newPassword"),
     });
     if (!parsed.success) return { error: parsed.error.issues[0].message };
+    const rateLimitKey = `changePassword:${user.id}`;
+    assertNotLockedOut(rateLimitKey);
     const repo = getRepository();
     const cred = await repo.findAuthByEmail(user.email);
     if (!cred || !verifyPassword(parsed.data.currentPassword, cred.passwordHash)) {
+      recordFailedAttempt(rateLimitKey);
       return { error: "Current password is incorrect" };
     }
+    clearFailedAttempts(rateLimitKey);
     await repo.setPasswordHash(user.id, hashPassword(parsed.data.newPassword));
     return { error: undefined };
   } catch (e) {
@@ -140,7 +176,7 @@ export async function changePassword(_prev: FormState, formData: FormData): Prom
 
 const transferSchema = z.object({
   toReferralCode: z.string().min(1, "Enter the recipient's code"),
-  amount: z.coerce.number().positive("Amount must be greater than zero"),
+  amount: moneyAmount().positive("Amount must be greater than zero"),
   note: z.string().optional(),
 });
 
@@ -167,7 +203,7 @@ const cashSchema = z.object({
   // Players self-deposit (admin approves). Withdrawals are now done by paying
   // back an agent via transfer(), not as an admin-approved cash request.
   type: z.enum(["deposit"]),
-  amount: z.coerce.number().positive("Amount must be greater than zero"),
+  amount: moneyAmount().positive("Amount must be greater than zero"),
 });
 
 export async function recordCash(formData: FormData): Promise<void> {
@@ -195,7 +231,9 @@ export async function approveTransaction(id: string, decision: "approved" | "rej
 }
 
 export async function readNotification(id: string): Promise<void> {
-  await getRepository().markNotificationRead(id);
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Not signed in");
+  await getRepository().markNotificationRead(id, user.id);
   revalidatePath("/notifications");
 }
 
@@ -212,7 +250,7 @@ async function requireManager() {
 const creditSchema = z.object({
   memberId: z.string().min(1),
   type: z.enum(["deposit", "rake_rebate", "adjustment"]),
-  amount: z.coerce.number().positive("Amount must be greater than zero"),
+  amount: moneyAmount().positive("Amount must be greater than zero"),
   note: z.string().optional(),
 });
 
@@ -237,7 +275,7 @@ export async function creditMember(formData: FormData): Promise<void> {
 
 const hoursSchema = z.object({
   memberId: z.string().min(1),
-  hours: z.coerce.number().min(0, "Hours cannot be negative"),
+  hours: z.coerce.number().finite("Hours must be a finite number").min(0, "Hours cannot be negative").max(100_000, "Hours is too large"),
 });
 
 export async function logMemberHours(formData: FormData): Promise<void> {
@@ -298,7 +336,7 @@ export async function decideMemberTransaction(
 
 const creditLimitSchema = z.object({
   playerId: z.string().min(1),
-  creditLimit: z.coerce.number().min(0, "Credit limit cannot be negative"),
+  creditLimit: moneyAmount("Credit limit").min(0, "Credit limit cannot be negative"),
 });
 
 /** Agent (or admin) sets a per-player credit limit. */
@@ -318,7 +356,7 @@ export async function setPlayerCreditLimit(formData: FormData): Promise<void> {
 }
 
 const creditRequestSchema = z.object({
-  amount: z.coerce.number().positive("Amount must be greater than zero"),
+  amount: moneyAmount().positive("Amount must be greater than zero"),
   note: z.string().optional(),
 });
 
@@ -424,7 +462,9 @@ export async function setUserRole(formData: FormData): Promise<void> {
 
 const adjustSchema = z.object({
   userId: z.string().min(1),
-  amount: z.coerce.number().refine((n) => n !== 0, "Amount cannot be zero"),
+  amount: moneyAmount()
+    .min(-MAX_MONEY_AMOUNT, "Amount is too large")
+    .refine((n) => n !== 0, "Amount cannot be zero"),
   note: z.string().optional(),
 });
 

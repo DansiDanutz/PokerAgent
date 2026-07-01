@@ -2,9 +2,11 @@
  * Session handling (server-only).
  *
  * The session cookie holds the user id plus an HMAC signature, so it can't be
- * forged client-side. The signing key is derived from SESSION_SECRET, falling
- * back to the Supabase service-role key (already a server-only secret), then a
- * dev constant for local zero-config runs.
+ * forged client-side. In production, SESSION_SECRET is required — we throw
+ * rather than fall back to another secret (Supabase service-role key, whose
+ * leak would then also forge sessions) or a hardcoded literal (which is
+ * public, being in this repo). Outside production, an unset SESSION_SECRET
+ * falls back to a dev-only constant so `npm run dev` needs no setup.
  */
 
 import "server-only";
@@ -16,11 +18,15 @@ import type { Role, User } from "@/types/domain";
 const COOKIE = "pa_session";
 
 function signingKey(): string {
-  return (
-    process.env.SESSION_SECRET ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    "pokeragent-dev-session-secret"
-  );
+  const configured = process.env.SESSION_SECRET;
+  if (configured) return configured;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "SESSION_SECRET is not set. Refusing to sign session cookies with a fallback secret in production " +
+        "(generate one with `openssl rand -base64 48` and set it in your deployment env).",
+    );
+  }
+  return "pokeragent-dev-session-secret";
 }
 
 function sign(userId: string): string {

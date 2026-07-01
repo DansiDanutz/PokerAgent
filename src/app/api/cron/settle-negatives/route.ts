@@ -12,18 +12,12 @@ import { NextResponse } from "next/server";
 import { getRepository } from "@/lib/data";
 import { formatMoney } from "@/lib/format";
 import { ADMIN_EMAIL } from "@/lib/governance";
+import { authorizedCronRequest } from "@/lib/auth/cron";
 
 export const dynamic = "force-dynamic";
 
-function authorized(req: Request): boolean {
-  const secret = process.env.CRON_SECRET;
-  // In local dev with no secret set, allow it so the route is testable.
-  if (!secret) return process.env.NODE_ENV !== "production";
-  return req.headers.get("authorization") === `Bearer ${secret}`;
-}
-
 export async function GET(req: Request): Promise<Response> {
-  if (!authorized(req)) {
+  if (!authorizedCronRequest(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

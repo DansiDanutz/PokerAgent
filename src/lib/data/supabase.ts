@@ -176,6 +176,27 @@ function nodeOf(u: User, all: User[]): NetworkNode {
   };
 }
 
+/**
+ * Logs the real Postgres/driver error server-side and throws a sanitized
+ * message instead — raw error text can carry constraint/column/schema names
+ * that shouldn't reach a client via a server action's error message. A few
+ * expected constraint violations get a friendly translation; everything else
+ * becomes a generic message.
+ */
+function dbError(error: { message: string; code?: string }): never {
+  console.error("[supabase]", error);
+  if (error.message.includes("pa_profiles_balance_floor_check")) {
+    throw new Error("That would put the balance below the allowed credit limit");
+  }
+  if (error.message.includes("pa_transactions_amount_nonzero_check")) {
+    throw new Error("Amount cannot be zero");
+  }
+  if (error.code === "23505") {
+    throw new Error("That value is already in use");
+  }
+  throw new Error("Something went wrong. Please try again.");
+}
+
 export class SupabaseRepository implements Repository {
   private db: SupabaseClient;
 
@@ -188,21 +209,42 @@ export class SupabaseRepository implements Repository {
     this.db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
   }
 
+  /**
+   * Explicit column list, deliberately excluding `password_hash` — every
+   * caller of `allProfiles`/`profile` maps through `toUser()`, which never
+   * reads that column, so there's no reason to pull a scrypt hash into app
+   * memory on every profile read. `findAuthByEmail` is the only method that
+   * legitimately needs it and selects it explicitly.
+   */
+  private static readonly PROFILE_COLUMNS =
+    "id, username, full_name, email, phone, country, avatar_url, role, status, kyc_status, " +
+    "upline_agent_id, referral_code, clubgg_id, clubgg_nickname, agent_request, balance, " +
+    "credit_limit, currency, hands_played, net_profit, rake_generated, win_rate_bb100, sessions, " +
+    "table_hours, last_monthly_snapshot_hours, current_rakeback_rate, rakeback_tier_as_of, " +
+    "created_at, last_active_at";
+
   private async allProfiles(): Promise<User[]> {
-    const { data, error } = await this.db.from("pa_profiles").select("*");
-    if (error) throw new Error(error.message);
-    return (data as ProfileRow[]).map(toUser);
+    const { data, error } = await this.db.from("pa_profiles").select(SupabaseRepository.PROFILE_COLUMNS);
+    if (error) dbError(error);
+    return (data as unknown as ProfileRow[]).map(toUser);
   }
 
   private async profile(id: string): Promise<User | null> {
-    const { data, error } = await this.db.from("pa_profiles").select("*").eq("id", id).maybeSingle();
-    if (error) throw new Error(error.message);
-    return data ? toUser(data as ProfileRow) : null;
+    const { data, error } = await this.db
+      .from("pa_profiles").select(SupabaseRepository.PROFILE_COLUMNS).eq("id", id).maybeSingle();
+    if (error) dbError(error);
+    return data ? toUser(data as unknown as ProfileRow) : null;
   }
 
-  private async setBalance(id: string, balance: number): Promise<void> {
-    const { error } = await this.db.from("pa_profiles").update({ balance }).eq("id", id);
-    if (error) throw new Error(error.message);
+  /**
+   * Atomic `balance += delta` via a Postgres function (not a JS
+   * read-then-write) — see supabase/migrations/20260701114746_pokeragent_atomic_money_ops.sql.
+   * A plain SELECT-then-UPDATE here would race under concurrent requests.
+   */
+  private async adjustBalance(id: string, delta: number): Promise<number> {
+    const { data, error } = await this.db.rpc("pa_adjust_balance", { p_user_id: id, p_delta: delta });
+    if (error) dbError(error);
+    return data as number;
   }
 
   private newId(prefix: string): string {
@@ -212,7 +254,7 @@ export class SupabaseRepository implements Repository {
   async findAuthByEmail(email: string): Promise<AuthCredential | null> {
     const { data, error } = await this.db
       .from("pa_profiles").select("id, password_hash").ilike("email", email.trim()).maybeSingle();
-    if (error) throw new Error(error.message);
+    if (error) dbError(error);
     if (!data || !(data as { password_hash: string | null }).password_hash) return null;
     return { id: (data as { id: string }).id, passwordHash: (data as { password_hash: string }).password_hash };
   }
@@ -243,13 +285,13 @@ export class SupabaseRepository implements Repository {
       balance: 0, currency: member.currency, table_hours: 0, created_at: member.createdAt,
       password_hash: input.passwordHash,
     });
-    if (error) throw new Error(error.message);
+    if (error) dbError(error);
     return member;
   }
 
   async setPasswordHash(userId: string, passwordHash: string): Promise<void> {
     const { error } = await this.db.from("pa_profiles").update({ password_hash: passwordHash }).eq("id", userId);
-    if (error) throw new Error(error.message);
+    if (error) dbError(error);
   }
 
   async getUser(id: string): Promise<User | null> {
@@ -258,16 +300,16 @@ export class SupabaseRepository implements Repository {
 
   async getUserByReferralCode(code: string): Promise<User | null> {
     const { data, error } = await this.db
-      .from("pa_profiles").select("*").ilike("referral_code", code.trim()).maybeSingle();
-    if (error) throw new Error(error.message);
-    return data ? toUser(data as ProfileRow) : null;
+      .from("pa_profiles").select(SupabaseRepository.PROFILE_COLUMNS).ilike("referral_code", code.trim()).maybeSingle();
+    if (error) dbError(error);
+    return data ? toUser(data as unknown as ProfileRow) : null;
   }
 
   async findUserByEmail(email: string): Promise<User | null> {
     const { data, error } = await this.db
-      .from("pa_profiles").select("*").ilike("email", email.trim()).maybeSingle();
-    if (error) throw new Error(error.message);
-    return data ? toUser(data as ProfileRow) : null;
+      .from("pa_profiles").select(SupabaseRepository.PROFILE_COLUMNS).ilike("email", email.trim()).maybeSingle();
+    if (error) dbError(error);
+    return data ? toUser(data as unknown as ProfileRow) : null;
   }
 
   async listUsers(filter?: { role?: Role; q?: string }): Promise<User[]> {
@@ -382,7 +424,7 @@ export class SupabaseRepository implements Repository {
       .from("pa_profiles")
       .update({ upline_agent_id: newAgent.id, last_active_at: ts })
       .eq("id", user.id);
-    if (error) throw new Error(error.message);
+    if (error) dbError(error);
 
     await this.addNotification({
       userId: user.id,
@@ -411,7 +453,7 @@ export class SupabaseRepository implements Repository {
   async listTransactions(userId: string): Promise<Transaction[]> {
     const { data, error } = await this.db
       .from("pa_transactions").select("*").eq("user_id", userId).order("created_at", { ascending: false });
-    if (error) throw new Error(error.message);
+    if (error) dbError(error);
     return (data as TxRow[]).map(toTx);
   }
 
@@ -422,7 +464,7 @@ export class SupabaseRepository implements Repository {
       processed_by: tx.processedBy ?? null, created_at: tx.createdAt,
     };
     const { error } = await this.db.from("pa_transactions").insert(row);
-    if (error) throw new Error(error.message);
+    if (error) dbError(error);
     return tx;
   }
 
@@ -437,7 +479,7 @@ export class SupabaseRepository implements Repository {
       processedBy: input.processedBy,
     };
     await this.insertTx(tx);
-    if (status === "completed") await this.setBalance(user.id, user.balance + input.amount);
+    if (status === "completed") await this.adjustBalance(user.id, input.amount);
     return tx;
   }
 
@@ -469,40 +511,64 @@ export class SupabaseRepository implements Repository {
     if (to.id === from.id) throw new Error("Cannot transfer to yourself");
     await this.assertTransferAllowed(from, to);
     if (input.amount <= 0) throw new Error("Amount must be positive");
+    // The authoritative balance check happens inside pa_transfer under a row
+    // lock; this is just a fast pre-check for a clearer error before we pay
+    // for a round trip.
     if (from.balance < input.amount) throw new Error("Insufficient balance");
     const ts = new Date().toISOString();
+    const outId = this.newId("t");
+    const inId = this.newId("t");
+    const { error } = await this.db.rpc("pa_transfer", {
+      p_out_tx_id: outId,
+      p_in_tx_id: inId,
+      p_from_id: from.id,
+      p_to_id: to.id,
+      p_amount: input.amount,
+      p_from_note: input.note ?? `To ${to.username}`,
+      p_to_note: input.note ?? `From ${from.username}`,
+      p_processed_by: from.id,
+      p_created_at: ts,
+    });
+    if (error) {
+      if (error.message === "pa_transfer: insufficient balance") throw new Error("Insufficient balance");
+      dbError(error);
+    }
     const out: Transaction = {
-      id: this.newId("t"), userId: from.id, counterpartyId: to.id, type: "transfer_out",
+      id: outId, userId: from.id, counterpartyId: to.id, type: "transfer_out",
       amount: -input.amount, currency: from.currency, status: "completed",
       note: input.note ?? `To ${to.username}`, createdAt: ts, processedBy: from.id,
     };
     const inn: Transaction = {
-      id: this.newId("t"), userId: to.id, counterpartyId: from.id, type: "transfer_in",
+      id: inId, userId: to.id, counterpartyId: from.id, type: "transfer_in",
       amount: input.amount, currency: to.currency, status: "completed",
       note: input.note ?? `From ${from.username}`, createdAt: ts, processedBy: from.id,
     };
-    await this.insertTx(out);
-    await this.insertTx(inn);
-    await this.setBalance(from.id, from.balance - input.amount);
-    await this.setBalance(to.id, to.balance + input.amount);
     return { out, in: inn };
   }
 
+  /**
+   * Atomically transitions a transaction out of "pending" and, if approved,
+   * credits the balance in the same Postgres call — see pa_approve_transaction
+   * in supabase/migrations/20260701114746_pokeragent_atomic_money_ops.sql.
+   * The `WHERE status = 'pending'` guard inside that function is what stops
+   * two concurrent approvals of the same transaction from both crediting.
+   */
   async setTransactionStatus(id: string, status: Transaction["status"], processedBy: string): Promise<Transaction> {
-    const { data, error } = await this.db.from("pa_transactions").select("*").eq("id", id).maybeSingle();
-    if (error) throw new Error(error.message);
+    const { data, error } = await this.db
+      .rpc("pa_approve_transaction", { p_tx_id: id, p_decision: status, p_processed_by: processedBy })
+      .maybeSingle();
+    if (error) dbError(error);
     if (!data) throw new Error("Transaction not found");
-    const tx = toTx(data as TxRow);
-    const wasPending = tx.status === "pending";
-    const finalStatus = status === "approved" ? "completed" : status;
-    const { error: upErr } = await this.db
-      .from("pa_transactions").update({ status: finalStatus, processed_by: processedBy }).eq("id", id);
-    if (upErr) throw new Error(upErr.message);
-    if (wasPending && (status === "approved" || status === "completed")) {
-      const user = await this.profile(tx.userId);
-      if (user) await this.setBalance(user.id, user.balance + tx.amount);
-    }
-    return { ...tx, status: finalStatus, processedBy };
+    const row = data as {
+      id: string; user_id: string; counterparty_id: string | null; type: string; amount: number;
+      currency: string; status: string; note: string | null; processed_by: string | null;
+      created_at: string; applied: boolean;
+    };
+    return toTx({
+      id: row.id, user_id: row.user_id, counterparty_id: row.counterparty_id, type: row.type,
+      amount: row.amount, currency: row.currency, status: row.status, note: row.note,
+      processed_by: row.processed_by, created_at: row.created_at,
+    } as TxRow);
   }
 
   private async assertUpline(agentId: string, memberId: string): Promise<void> {
@@ -533,25 +599,37 @@ export class SupabaseRepository implements Repository {
       throw new Error("This player must verify KYC (Level 1) before they can receive rakeback");
     }
     const ts = new Date().toISOString();
-    if (agent.role !== "admin") {
-      if (agent.balance < input.amount) {
+    const debitAgent = agent.role !== "admin";
+    if (debitAgent && agent.balance < input.amount) {
+      // Fast pre-check for a clearer error; pa_credit_member re-checks under lock.
+      throw new Error("Insufficient balance — request credit from admin first");
+    }
+    const debitTxId = this.newId("t");
+    const creditTxId = this.newId("t");
+    const { error } = await this.db.rpc("pa_credit_member", {
+      p_debit_tx_id: debitTxId,
+      p_credit_tx_id: creditTxId,
+      p_agent_id: agent.id,
+      p_member_id: member.id,
+      p_amount: input.amount,
+      p_debit_note: input.note ?? `Credit to ${member.username}`,
+      p_credit_note: input.note,
+      p_tx_type: input.type,
+      p_created_at: ts,
+      p_debit_agent: debitAgent,
+    });
+    if (error) {
+      if (error.message === "pa_credit_member: insufficient balance") {
         throw new Error("Insufficient balance — request credit from admin first");
       }
-      await this.insertTx({
-        id: this.newId("t"), userId: agent.id, counterpartyId: member.id, type: "transfer_out",
-        amount: -input.amount, currency: agent.currency, status: "completed",
-        note: input.note ?? `Credit to ${member.username}`, createdAt: ts, processedBy: agent.id,
-      });
-      await this.setBalance(agent.id, agent.balance - input.amount);
+      dbError(error);
     }
     const credit: Transaction = {
-      id: this.newId("t"), userId: member.id,
-      counterpartyId: agent.role !== "admin" ? agent.id : undefined,
+      id: creditTxId, userId: member.id,
+      counterpartyId: debitAgent ? agent.id : undefined,
       type: input.type, amount: input.amount, currency: member.currency, status: "completed",
       note: input.note, createdAt: ts, processedBy: agent.id,
     };
-    await this.insertTx(credit);
-    await this.setBalance(member.id, member.balance + input.amount);
     return credit;
   }
 
@@ -574,7 +652,7 @@ export class SupabaseRepository implements Repository {
       }
     }
     const { error } = await this.db.from("pa_profiles").update({ credit_limit: creditLimit }).eq("id", playerId);
-    if (error) throw new Error(error.message);
+    if (error) dbError(error);
     return (await this.profile(playerId))!;
   }
 
@@ -582,7 +660,7 @@ export class SupabaseRepository implements Repository {
     await this.assertUpline(agentId, memberId);
     if (hours < 0) throw new Error("Hours cannot be negative");
     const { error } = await this.db.from("pa_profiles").update({ table_hours: hours }).eq("id", memberId);
-    if (error) throw new Error(error.message);
+    if (error) dbError(error);
     return (await this.profile(memberId))!;
   }
 
@@ -591,7 +669,7 @@ export class SupabaseRepository implements Repository {
     if (!user) throw new Error("User not found");
     if (user.role !== "player") throw new Error("Only players can request agent status");
     const { error } = await this.db.from("pa_profiles").update({ agent_request: "pending" }).eq("id", userId);
-    if (error) throw new Error(error.message);
+    if (error) dbError(error);
     return (await this.profile(userId))!;
   }
 
@@ -616,23 +694,24 @@ export class SupabaseRepository implements Repository {
           rakeback_tier_as_of: new Date().toISOString(),
         })
         .eq("id", userId);
-      if (error) throw new Error(error.message);
+      if (error) dbError(error);
     } else {
       const { error } = await this.db.from("pa_profiles").update({ agent_request: "rejected" }).eq("id", userId);
-      if (error) throw new Error(error.message);
+      if (error) dbError(error);
     }
     return (await this.profile(userId))!;
   }
 
   async listAgentRequests(): Promise<User[]> {
-    const { data, error } = await this.db.from("pa_profiles").select("*").eq("agent_request", "pending");
-    if (error) throw new Error(error.message);
-    return (data as ProfileRow[]).map(toUser);
+    const { data, error } = await this.db
+      .from("pa_profiles").select(SupabaseRepository.PROFILE_COLUMNS).eq("agent_request", "pending");
+    if (error) dbError(error);
+    return (data as unknown as ProfileRow[]).map(toUser);
   }
 
   async decideMemberTransaction(agentId: string, txId: string, status: "approved" | "rejected"): Promise<Transaction> {
     const { data, error } = await this.db.from("pa_transactions").select("user_id").eq("id", txId).maybeSingle();
-    if (error) throw new Error(error.message);
+    if (error) dbError(error);
     if (!data) throw new Error("Transaction not found");
     await this.assertUpline(agentId, (data as { user_id: string }).user_id);
     return this.setTransactionStatus(txId, status, agentId);
@@ -641,13 +720,14 @@ export class SupabaseRepository implements Repository {
   async listNotifications(userId: string): Promise<Notification[]> {
     const { data, error } = await this.db
       .from("pa_notifications").select("*").eq("user_id", userId).order("created_at", { ascending: false });
-    if (error) throw new Error(error.message);
+    if (error) dbError(error);
     return (data as NotifRow[]).map(toNotif);
   }
 
-  async markNotificationRead(id: string): Promise<void> {
-    const { error } = await this.db.from("pa_notifications").update({ read: true }).eq("id", id);
-    if (error) throw new Error(error.message);
+  async markNotificationRead(id: string, userId: string): Promise<void> {
+    const { error } = await this.db
+      .from("pa_notifications").update({ read: true }).eq("id", id).eq("user_id", userId);
+    if (error) dbError(error);
   }
 
   async addNotification(input: Omit<Notification, "id" | "read" | "createdAt">): Promise<Notification> {
@@ -655,7 +735,7 @@ export class SupabaseRepository implements Repository {
     const { error } = await this.db.from("pa_notifications").insert({
       id: n.id, user_id: n.userId, kind: n.kind, title: n.title, body: n.body, read: false, created_at: n.createdAt,
     });
-    if (error) throw new Error(error.message);
+    if (error) dbError(error);
     return n;
   }
 
@@ -677,7 +757,7 @@ export class SupabaseRepository implements Repository {
   async decideAgentCredit(adminId: string, txId: string, decision: "approved" | "rejected"): Promise<Transaction> {
     await this.assertAdmin(adminId);
     const { data, error } = await this.db.from("pa_transactions").select("*").eq("id", txId).maybeSingle();
-    if (error) throw new Error(error.message);
+    if (error) dbError(error);
     if (!data) throw new Error("Transaction not found");
     const tx = toTx(data as TxRow);
     if (tx.type !== "agent_credit") throw new Error("Not a credit request");
@@ -689,14 +769,14 @@ export class SupabaseRepository implements Repository {
     const { data, error } = await this.db
       .from("pa_transactions").select("*").eq("type", "agent_credit").eq("status", "pending")
       .order("created_at", { ascending: false });
-    if (error) throw new Error(error.message);
+    if (error) dbError(error);
     return (data as TxRow[]).map(toTx);
   }
 
   async listSettlements(): Promise<Transaction[]> {
     const { data, error } = await this.db
       .from("pa_transactions").select("*").eq("type", "agent_credit").order("created_at", { ascending: false });
-    if (error) throw new Error(error.message);
+    if (error) dbError(error);
     return (data as TxRow[]).map(toTx);
   }
 
@@ -709,21 +789,29 @@ export class SupabaseRepository implements Repository {
       if (player.role !== "player" || player.balance >= 0 || !player.uplineAgentId) continue;
       const agent = byId.get(player.uplineAgentId);
       if (!agent) continue;
-      const amount = -player.balance;
+      // pa_sweep_negative_balance re-checks the player's balance under a row
+      // lock at execution time (not this stale snapshot) and returns null if
+      // there's nothing left to sweep, so a concurrent credit landing between
+      // this read and the sweep can't get clobbered.
+      const { data: swept, error } = await this.db.rpc("pa_sweep_negative_balance", {
+        p_player_id: player.id,
+        p_agent_id: agent.id,
+      });
+      if (error) dbError(error);
+      if (swept === null || swept === undefined) continue;
+      const amount = swept as number;
       await this.insertTx({
         id: this.newId("t"), userId: player.id, counterpartyId: agent.id, type: "adjustment",
         amount, currency: player.currency, status: "completed",
         note: "Negative balance settled by agent", createdAt: ts, processedBy: agent.id,
       });
-      await this.setBalance(player.id, 0);
       await this.insertTx({
         id: this.newId("t"), userId: agent.id, counterpartyId: player.id, type: "adjustment",
         amount: -amount, currency: agent.currency, status: "completed",
         note: `Absorbed ${player.username}'s negative balance`, createdAt: ts, processedBy: agent.id,
       });
-      const agentNewBalance = agent.balance - amount;
-      await this.setBalance(agent.id, agentNewBalance);
-      agent.balance = agentNewBalance; // keep local map in sync for multi-player agents
+      const agentAfter = await this.profile(agent.id);
+      const agentNewBalance = agentAfter?.balance ?? agent.balance - amount;
       results.push({ playerId: player.id, agentId: agent.id, amount, agentNowNegative: agentNewBalance < 0 });
     }
     return results;
@@ -733,6 +821,13 @@ export class SupabaseRepository implements Repository {
   async recalculateMonthlyRakebackTiers(): Promise<RakebackTierChange[]> {
     const all = await this.allProfiles();
     const ts = new Date().toISOString();
+    // Idempotency guard: a retried/duplicate cron delivery in the same
+    // calendar month must not re-run this — it would reset the hours
+    // baseline twice and silently zero out agents' qualifying VIP counts.
+    const currentMonthKey = ts.slice(0, 7);
+    if (all.some((u) => u.role === "agent" && u.rakebackTierAsOf?.slice(0, 7) === currentMonthKey)) {
+      return [];
+    }
     const qualifies = (n: NetworkNode): boolean => {
       const played = n.user.stats.tableHours - (n.user.stats.lastMonthlySnapshotHours ?? 0);
       if (played < AGENT_MIN_MONTHLY_HOURS) return false;
@@ -753,7 +848,7 @@ export class SupabaseRepository implements Repository {
         .from("pa_profiles")
         .update({ current_rakeback_rate: newRate, rakeback_tier_as_of: ts })
         .eq("id", agent.id);
-      if (error) throw new Error(error.message);
+      if (error) dbError(error);
     }
 
     // Reset the hours baseline for EVERY user (not just agents' downlines)
@@ -763,7 +858,7 @@ export class SupabaseRepository implements Repository {
         .from("pa_profiles")
         .update({ last_monthly_snapshot_hours: u.stats.tableHours })
         .eq("id", u.id);
-      if (error) throw new Error(error.message);
+      if (error) dbError(error);
     }
     return results;
   }
@@ -787,7 +882,7 @@ export class SupabaseRepository implements Repository {
     const { data, error } = await this.db
       .from("pa_transactions").select("*").eq("status", "pending").neq("type", "agent_credit")
       .order("created_at", { ascending: false });
-    if (error) throw new Error(error.message);
+    if (error) dbError(error);
     return (data as TxRow[]).map(toTx);
   }
 
@@ -817,14 +912,14 @@ export class SupabaseRepository implements Repository {
       agent_request: "none", balance: member.balance, currency: member.currency,
       table_hours: 0, created_at: member.createdAt,
     });
-    if (error) throw new Error(error.message);
+    if (error) dbError(error);
     return member;
   }
 
   async setKycStatus(adminId: string, userId: string, status: KycStatus): Promise<User> {
     await this.assertAdmin(adminId);
     const { error } = await this.db.from("pa_profiles").update({ kyc_status: status }).eq("id", userId);
-    if (error) throw new Error(error.message);
+    if (error) dbError(error);
     return (await this.profile(userId))!;
   }
 
@@ -834,7 +929,7 @@ export class SupabaseRepository implements Repository {
     if (!user) throw new Error("User not found");
     if (user.role === "admin") throw new Error("Cannot change an admin's account status");
     const { error } = await this.db.from("pa_profiles").update({ status }).eq("id", userId);
-    if (error) throw new Error(error.message);
+    if (error) dbError(error);
     return (await this.profile(userId))!;
   }
 
@@ -850,7 +945,7 @@ export class SupabaseRepository implements Repository {
       throw new Error("The platform admin cannot be demoted");
     }
     const { error } = await this.db.from("pa_profiles").update({ role }).eq("id", userId);
-    if (error) throw new Error(error.message);
+    if (error) dbError(error);
     return (await this.profile(userId))!;
   }
 
@@ -864,7 +959,7 @@ export class SupabaseRepository implements Repository {
       status: "completed", note: note ?? "Admin adjustment", createdAt: new Date().toISOString(), processedBy: adminId,
     };
     await this.insertTx(tx);
-    await this.setBalance(userId, user.balance + amount);
+    await this.adjustBalance(userId, amount);
     return tx;
   }
 }

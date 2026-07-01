@@ -26,7 +26,9 @@ import type {
   Repository,
   SweepResult,
 } from "./repository";
+import { randomBytes } from "node:crypto";
 import { buildNewMember } from "./newMember";
+import { hashPassword } from "@/lib/auth/password";
 import { ADMIN_EMAIL, isAdminEmail } from "@/lib/governance";
 import {
   isRakebackEligible,
@@ -63,8 +65,23 @@ export class MemoryRepository implements Repository {
     this.users = new Map(clone(SEED_USERS).map((u) => [u.id, u]));
     this.transactions = clone(SEED_TRANSACTIONS);
     this.notifications = clone(SEED_NOTIFICATIONS);
-    // Every seeded account shares the demo password.
-    this.passwords = new Map(SEED_USERS.map((u) => [u.id, SEED_PASSWORD_HASH]));
+    // Every non-admin seeded account shares the public demo password (see
+    // seed.ts). The admin account never gets a known/shared credential, even
+    // in this zero-config demo driver — it gets a fresh random password every
+    // boot, printed once to the server console (never returned to a client).
+    this.passwords = new Map(
+      SEED_USERS.filter((u) => !isAdminEmail(u.email)).map((u) => [u.id, SEED_PASSWORD_HASH]),
+    );
+    const adminId = SEED_USERS.find((u) => isAdminEmail(u.email))?.id;
+    if (adminId) {
+      const adminPassword = randomBytes(9).toString("base64url");
+      this.passwords.set(adminId, hashPassword(adminPassword));
+      // eslint-disable-next-line no-console -- intentional one-time operator credential
+      console.log(
+        `[data] In-memory driver: generated admin password for ${ADMIN_EMAIL}: ${adminPassword} ` +
+          `(changes every restart; set DATA_DRIVER=supabase for a real deployment)`,
+      );
+    }
   }
 
   async findAuthByEmail(email: string): Promise<AuthCredential | null> {
@@ -586,9 +603,9 @@ export class MemoryRepository implements Repository {
     );
   }
 
-  async markNotificationRead(id: string): Promise<void> {
+  async markNotificationRead(id: string, userId: string): Promise<void> {
     const n = this.notifications.find((x) => x.id === id);
-    if (n) n.read = true;
+    if (n && n.userId === userId) n.read = true;
   }
 
   async addNotification(input: Omit<Notification, "id" | "read" | "createdAt">): Promise<Notification> {
@@ -681,6 +698,14 @@ export class MemoryRepository implements Repository {
   // --- monthly rakeback tier recalculation ----------------------------------
   async recalculateMonthlyRakebackTiers(): Promise<RakebackTierChange[]> {
     const ts = this.now();
+    // Idempotency guard: a retried/duplicate cron delivery in the same
+    // calendar month must not re-run this — it would reset the hours
+    // baseline twice and silently zero out agents' qualifying VIP counts.
+    const currentMonthKey = ts.slice(0, 7);
+    const agents = [...this.users.values()].filter((u) => u.role === "agent");
+    if (agents.some((a) => a.rakebackTierAsOf?.slice(0, 7) === currentMonthKey)) {
+      return [];
+    }
     const qualifies = (n: NetworkNode): boolean => {
       const played = n.user.stats.tableHours - (n.user.stats.lastMonthlySnapshotHours ?? 0);
       if (played < AGENT_MIN_MONTHLY_HOURS) return false;
@@ -688,7 +713,7 @@ export class MemoryRepository implements Repository {
     };
 
     const results: RakebackTierChange[] = [];
-    for (const agent of [...this.users.values()].filter((u) => u.role === "agent")) {
+    for (const agent of agents) {
       const qualifiedVipCount = flattenOwnBusiness(this.buildNode(agent)).filter(qualifies).length;
       const newRate = rakebackRateForTier(AGENT_RAKEBACK_TIERS, qualifiedVipCount);
       results.push({

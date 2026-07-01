@@ -74,16 +74,21 @@ demo logins to explore each perspective.
 
 The app talks to data only through the [`Repository`](src/lib/data/repository.ts)
 interface. The default driver is in-memory; a persistent Supabase backend is
-ready via the schema + Row Level Security in
-[`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql).
+ready via the schema in [`supabase/migrations/`](supabase/migrations/).
 
 ```bash
 cp .env.example .env.local
 # set NEXT_PUBLIC_SUPABASE_URL / _ANON_KEY and DATA_DRIVER=supabase
 ```
 
-RLS enforces the role model: a user sees themselves; an agent sees their whole
-downline subtree; an admin sees everyone.
+The role model (a user sees themselves; an agent sees their whole downline
+subtree; an admin sees everyone) is enforced in the app layer
+(`SupabaseRepository`'s `assertUpline`/`assertAdmin`/`assertTransferAllowed`),
+not by Postgres RLS. RLS is enabled on every `pa_*` table but has zero
+policies attached, so it acts as a fail-closed backstop — only the
+server-only service-role client (which bypasses RLS) can reach these tables
+at all; there is currently no path where an authenticated Supabase session
+queries them directly.
 
 ## 🎴 ClubGG integration
 

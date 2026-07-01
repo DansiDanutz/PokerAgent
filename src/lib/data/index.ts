@@ -5,6 +5,13 @@
  *
  * The instance is cached on globalThis so the in-memory state survives Next.js
  * hot-reloads and is shared across server requests in a single process.
+ *
+ * DATA_DRIVER=supabase is a deliberate, security-relevant choice — the
+ * in-memory driver seeds real-looking accounts with a known demo password.
+ * If Supabase initialization fails, we fail closed (throw) instead of
+ * silently downgrading to the in-memory driver, so a misconfigured
+ * production deploy (missing/typo'd env var) can't accidentally serve a
+ * seeded, guessable-credential store instead of erroring loudly.
  */
 
 import { MemoryRepository } from "./memory";
@@ -18,17 +25,9 @@ export function getRepository(): Repository {
   const driver = process.env.DATA_DRIVER ?? "memory";
   let repo: Repository;
   if (driver === "supabase") {
-    try {
-      // Lazy require so the in-memory path never pulls in the Supabase client.
-      const { SupabaseRepository } = require("./supabase") as typeof import("./supabase");
-      repo = new SupabaseRepository();
-    } catch (e) {
-      console.warn(
-        `[data] DATA_DRIVER=supabase but the Supabase client could not be initialized ` +
-          `(${e instanceof Error ? e.message : "unknown error"}); falling back to in-memory.`,
-      );
-      repo = new MemoryRepository();
-    }
+    // Lazy require so the in-memory path never pulls in the Supabase client.
+    const { SupabaseRepository } = require("./supabase") as typeof import("./supabase");
+    repo = new SupabaseRepository();
   } else {
     repo = new MemoryRepository();
   }
