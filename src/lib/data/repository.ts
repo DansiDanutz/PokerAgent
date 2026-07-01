@@ -87,6 +87,8 @@ export interface Repository {
   // --- users ---
   getUser(id: string): Promise<User | null>;
   getUserByReferralCode(code: string): Promise<User | null>;
+  /** Exact, case-insensitive email lookup (used by OAuth sign-in to find-or-create). */
+  findUserByEmail(email: string): Promise<User | null>;
   listUsers(filter?: { role?: Role; q?: string }): Promise<User[]>;
 
   // --- network (agent tree) ---

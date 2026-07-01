@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { Button } from "@/components/ui";
+import { GoogleButton } from "@/components/auth/GoogleButton";
 import { registerAction, type FormState } from "@/app/actions";
 
 const initial: FormState = {};
@@ -29,6 +30,14 @@ export function RegisterForm() {
       <p className="text-center text-[11px] text-ink-500">
         By continuing you agree to play responsibly. 18+.
       </p>
+
+      <div className="flex items-center gap-3 text-[10px] uppercase tracking-wider text-ink-500">
+        <span className="h-px flex-1 bg-white/10" />
+        Or continue with
+        <span className="h-px flex-1 bg-white/10" />
+      </div>
+
+      <GoogleButton />
     </form>
   );
 }

@@ -113,6 +113,14 @@ export class MemoryRepository implements Repository {
     return null;
   }
 
+  async findUserByEmail(email: string): Promise<User | null> {
+    const norm = email.trim().toLowerCase();
+    for (const u of this.users.values()) {
+      if (u.email.toLowerCase() === norm) return clone(u);
+    }
+    return null;
+  }
+
   async listUsers(filter?: { role?: Role; q?: string }): Promise<User[]> {
     let list = [...this.users.values()];
     if (filter?.role) list = list.filter((u) => u.role === filter.role);

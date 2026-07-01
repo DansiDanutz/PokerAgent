@@ -2,6 +2,7 @@
 
 import { useActionState, useRef } from "react";
 import { Button } from "@/components/ui";
+import { GoogleButton } from "@/components/auth/GoogleButton";
 import { loginAction, type FormState } from "@/app/actions";
 import { DEMO_LOGINS, SEED_PASSWORD } from "@/lib/data/seed";
 
@@ -39,6 +40,14 @@ export function LoginForm() {
           {pending ? "Signing in…" : "Log In"}
         </Button>
       </form>
+
+      <div className="flex items-center gap-3 text-[10px] uppercase tracking-wider text-ink-500">
+        <span className="h-px flex-1 bg-white/10" />
+        Or continue with
+        <span className="h-px flex-1 bg-white/10" />
+      </div>
+
+      <GoogleButton />
 
       <div className="flex items-center gap-3 text-[10px] uppercase tracking-wider text-ink-500">
         <span className="h-px flex-1 bg-white/10" />

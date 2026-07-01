@@ -239,6 +239,13 @@ export class SupabaseRepository implements Repository {
     return data ? toUser(data as ProfileRow) : null;
   }
 
+  async findUserByEmail(email: string): Promise<User | null> {
+    const { data, error } = await this.db
+      .from("pa_profiles").select("*").ilike("email", email.trim()).maybeSingle();
+    if (error) throw new Error(error.message);
+    return data ? toUser(data as ProfileRow) : null;
+  }
+
   async listUsers(filter?: { role?: Role; q?: string }): Promise<User[]> {
     let users = await this.allProfiles();
     if (filter?.role) users = users.filter((u) => u.role === filter.role);

@@ -19,6 +19,7 @@ import type { ReactNode } from "react";
 import type { Role, User } from "@/types/domain";
 import { Brand } from "@/components/brand";
 import { Avatar } from "@/components/ui";
+import { InstallAppBanner } from "@/components/InstallAppBanner";
 import { formatMoney } from "@/lib/format";
 import { logout } from "@/app/actions";
 
@@ -75,6 +76,7 @@ export function AppShell({
       {/* Main column */}
       <div className="flex min-w-0 flex-1 flex-col pb-24 lg:pb-0">
         <TopBar user={user} unreadCount={unreadCount} />
+        <InstallAppBanner />
         <main className="flex-1 px-4 py-5 sm:px-6">{children}</main>
       </div>
 
