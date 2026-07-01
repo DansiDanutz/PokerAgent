@@ -41,6 +41,15 @@ export interface SweepResult {
   agentNowNegative: boolean;
 }
 
+/** One agent's rakeback tier changing during the monthly recalculation. */
+export interface RakebackTierChange {
+  agentId: string;
+  previousRate: number; // 0-1
+  newRate: number; // 0-1
+  /** VIP players who played 20h+ during the completed month. */
+  qualifiedVipCount: number;
+}
+
 export interface CreateMemberInput {
   username: string;
   fullName: string;
@@ -154,6 +163,14 @@ export interface Repository {
   sweepNegativeBalances(): Promise<SweepResult[]>;
   /** Create a notification (used by the sweep job and other money events). */
   addNotification(input: Omit<Notification, "id" | "read" | "createdAt">): Promise<Notification>;
+
+  // --- monthly rakeback tier recalculation (cron) ---
+  /**
+   * Recomputes every agent's locked `currentRakebackRate` from VIP players
+   * who played `AGENT_MIN_MONTHLY_HOURS`+ since the last run, then resets
+   * the hours snapshot baseline for every user. Run once a month.
+   */
+  recalculateMonthlyRakebackTiers(): Promise<RakebackTierChange[]>;
 
   // --- notifications ---
   listNotifications(userId: string): Promise<Notification[]>;

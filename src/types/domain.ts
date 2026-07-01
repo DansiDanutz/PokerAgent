@@ -50,6 +50,16 @@ export interface User {
   lastActiveAt?: string;
   /** Aggregated lifetime poker metrics (denormalized for dashboards). */
   stats: PlayerStats;
+  /**
+   * Agent's current effective rakeback rate (0-1). Set once at agent
+   * approval (a live provisional tier) and overwritten each month by
+   * `recalculateMonthlyRakebackTiers` (locked, qualified). Undefined only
+   * for agents who existed before this feature and haven't hit a monthly
+   * recalculation yet.
+   */
+  currentRakebackRate?: number;
+  /** ISO timestamp of when `currentRakebackRate` was last set — audit/display only. */
+  rakebackTierAsOf?: string;
 }
 
 export interface PlayerStats {
@@ -62,6 +72,12 @@ export interface PlayerStats {
   sessions: number;
   /** Hours spent at a table — drives VIP status (4h) and higher levels. */
   tableHours: number;
+  /**
+   * `tableHours` value as of the last monthly rakeback-tier recalculation —
+   * the delta since this snapshot is "hours played this month" for the
+   * agent-tier 20h/month qualification rule.
+   */
+  lastMonthlySnapshotHours?: number;
 }
 
 /** Player status label, shown as a badge on every member of a tree. */
@@ -136,6 +152,14 @@ export interface NetworkSummary {
   networkRake: number;
   /** Estimated agent commission earned from the network (minor units). */
   commissionEarned: number;
+  /** Effective rakeback rate (0-1) used to compute `commissionEarned`. */
+  commissionRate: number;
+  /**
+   * VIP+ players in "own business" scope (stops descending past a nested
+   * agent) — the same count that drives both the tier rate and the
+   * Path-to-Agent CTA.
+   */
+  vipNetworkCount: number;
   /** True when the agent's own balance is negative — credit & earnings frozen. */
   frozen: boolean;
   currency: string;

@@ -7,7 +7,7 @@ import { TreeVisual } from "@/components/network/TreeVisual";
 import { RakeBarChart } from "@/components/charts/RakeBarChart";
 import { InviteCard } from "@/components/InviteCard";
 import { flattenNetwork } from "@/lib/network";
-import { formatMoney, formatNumber } from "@/lib/format";
+import { formatMoney, formatNumber, formatPercent } from "@/lib/format";
 
 export default async function NetworkPage() {
   const user = (await getCurrentUser())!;
@@ -37,7 +37,12 @@ export default async function NetworkPage() {
         <Stat label="Direct referrals" value={formatNumber(summary.directReferrals)} />
         <Stat label="Total network" value={formatNumber(summary.totalNetwork)} tone="gold" />
         <Stat label="Active players" value={formatNumber(summary.activePlayers)} tone="up" />
-        <Stat label="Commission" value={formatMoney(summary.commissionEarned, summary.currency)} tone="gold" />
+        <Stat
+          label="Commission"
+          value={formatMoney(summary.commissionEarned, summary.currency)}
+          hint={`${formatPercent(summary.commissionRate, 0)} of ${formatMoney(summary.networkRake, summary.currency)} rake`}
+          tone="gold"
+        />
       </div>
 
       <Card>

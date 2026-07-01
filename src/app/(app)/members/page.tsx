@@ -7,7 +7,7 @@ import { Card, Stat, SectionTitle, Badge, Button, Avatar } from "@/components/ui
 import { MemberManager, type MemberRow } from "@/components/members/MemberManager";
 import { TX_META } from "@/components/wallet/txMeta";
 import { decideMemberTransaction, requestAgentCredit } from "@/app/actions";
-import { currentLevel, memberStatus, isRakebackEligible } from "@/lib/levels";
+import { currentLevel, memberStatus, isRakebackEligible, nextRakebackTier, AGENT_RAKEBACK_TIERS } from "@/lib/levels";
 import { isDormant, daysSinceActive } from "@/lib/activity";
 import { formatMoney, formatNumber, formatPercent, formatDate } from "@/lib/format";
 
@@ -91,8 +91,39 @@ export default async function MembersPage() {
         <Stat label="Members" value={formatNumber(summary.totalNetwork)} />
         <Stat label="Active players" value={formatNumber(summary.activePlayers)} tone="up" />
         <Stat label="Network rake" value={formatMoney(summary.networkRake, summary.currency)} />
-        <Stat label="Your commission" value={formatMoney(summary.commissionEarned, summary.currency)} tone="gold" />
+        <Stat
+          label="Your commission"
+          value={formatMoney(summary.commissionEarned, summary.currency)}
+          tone="gold"
+        />
       </div>
+
+      {/* Agent rakeback tier */}
+      {user.role === "agent" && (
+        <Card>
+          <SectionTitle
+            title="Your rakeback tier"
+            subtitle={
+              user.rakebackTierAsOf
+                ? `Locked as of ${formatDate(user.rakebackTierAsOf)} · ${summary.vipNetworkCount} own-business VIP players`
+                : `Provisional — based on ${summary.vipNetworkCount} own-business VIP players today`
+            }
+            action={<Badge tone="gold">{formatPercent(summary.commissionRate, 0)}</Badge>}
+          />
+          {(() => {
+            const next = nextRakebackTier(AGENT_RAKEBACK_TIERS, summary.vipNetworkCount);
+            return next ? (
+              <p className="text-xs text-ink-400">
+                {next.minVip - summary.vipNetworkCount} more qualified VIP player
+                {next.minVip - summary.vipNetworkCount === 1 ? "" : "s"} (20h+ played this month) to reach{" "}
+                {formatPercent(next.rate, 0)}.
+              </p>
+            ) : (
+              <p className="text-xs text-ink-400">You&apos;re at the top tier — 50%.</p>
+            );
+          })()}
+        </Card>
+      )}
 
       {/* Agent → admin credit request */}
       {user.role === "agent" && (

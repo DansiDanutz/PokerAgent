@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/settle-negatives",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/recalc-rakeback-tiers",
+      "schedule": "0 0 1 * *"
     }
   ]
 }

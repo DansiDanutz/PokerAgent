@@ -25,37 +25,28 @@ import {
   nextLevel,
   memberStatus,
   agentProgress,
+  nextRakebackTier,
+  REFERRAL_RAKEBACK_TIERS,
   LEVELS,
 } from "@/lib/levels";
-import { flattenNetwork } from "@/lib/network";
 import { requestAgentStatus } from "@/app/actions";
-import type { NetworkNode } from "@/types/domain";
-import { formatMoney, formatMoneyCompact, formatNumber } from "@/lib/format";
-
-function nodeLevelInputs(node: NetworkNode) {
-  return {
-    kycVerified: node.user.kycStatus === "verified",
-    tableHours: node.user.stats.tableHours,
-    directReferrals: node.children.length,
-  };
-}
+import { formatMoney, formatMoneyCompact, formatNumber, formatPercent } from "@/lib/format";
 
 export default async function DashboardPage() {
   const user = (await getCurrentUser())!;
   const repo = getRepository();
-  const [tree, notifications, overview] = await Promise.all([
+  const [tree, summary, notifications, overview] = await Promise.all([
     repo.getNetworkTree(user.id),
+    repo.getNetworkSummary(user.id),
     repo.listNotifications(user.id),
     user.role === "admin" ? repo.getAdminOverview() : Promise.resolve(null),
   ]);
 
   const directReferrals = tree?.children.length ?? 0;
   const totalNetwork = tree?.subtreeSize ?? 0;
-  // Agent eligibility counts VIP+ players anywhere in the network, not just
-  // direct referrals — a player can qualify via referrals-of-referrals too.
-  const vipNetworkCount = tree
-    ? flattenNetwork(tree).filter((n) => memberStatus(nodeLevelInputs(n)) === "vip_player").length
-    : 0;
+  // Agent eligibility (and the rakeback tier rate) both key off the same
+  // own-business VIP count that getNetworkSummary already computed.
+  const vipNetworkCount = summary.vipNetworkCount;
   const unread = notifications.filter((n) => !n.read).length;
 
   const myInputs = {
@@ -66,6 +57,7 @@ export default async function DashboardPage() {
   const level = currentLevel(myInputs);
   const next = nextLevel(myInputs);
   const progress = agentProgress({ vipNetworkCount });
+  const nextTier = nextRakebackTier(REFERRAL_RAKEBACK_TIERS, vipNetworkCount);
 
   // Role-aware big cards. For non-players, "Network" highlights direct
   // referrals (who they personally brought in) while "Manage Members" below
@@ -249,6 +241,20 @@ export default async function DashboardPage() {
           <p className="mt-1.5 text-right text-xs font-medium text-ink-300">
             {progress.current} / {progress.target} VIP players
           </p>
+
+          {/* Current rakeback rate + next tier — same VIP count, referral tier ladder */}
+          <div className="mt-4 rounded-xl bg-white/[0.03] p-3 ring-1 ring-inset ring-white/5">
+            <p className="text-xs text-ink-300">
+              You currently earn <span className="font-semibold gold-text">{formatPercent(summary.commissionRate, 0)}</span> rakeback
+              from your network.
+            </p>
+            {nextTier && (
+              <p className="mt-1 text-[11px] text-ink-500">
+                {nextTier.minVip - vipNetworkCount} more VIP player{nextTier.minVip - vipNetworkCount === 1 ? "" : "s"} to
+                reach {formatPercent(nextTier.rate, 0)}.
+              </p>
+            )}
+          </div>
         </Card>
       )}
 

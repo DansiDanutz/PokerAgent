@@ -138,3 +138,50 @@ export function agentProgress(input: AgentProgressInput): {
     eligible: input.vipNetworkCount >= AGENT_MIN_VIP_NETWORK,
   };
 }
+
+// ---- Rakeback tiers ---------------------------------------------------------
+
+export interface RakebackTier {
+  minVip: number;
+  rate: number; // 0-1
+}
+
+/**
+ * Plain VIP referrers (not agents) — recalculated live from the current VIP
+ * network count. Caps at 20%: growing past 10 VIP players without becoming
+ * an agent doesn't earn more — that's what the agent tiers are for.
+ */
+export const REFERRAL_RAKEBACK_TIERS: RakebackTier[] = [
+  { minVip: 1, rate: 0.05 },
+  { minVip: 4, rate: 0.10 },
+  { minVip: 6, rate: 0.15 },
+  { minVip: 10, rate: 0.20 },
+];
+
+/**
+ * Agents — locked once a month (see `recalculateMonthlyRakebackTiers` on the
+ * repository), based on VIP players who each played
+ * `AGENT_MIN_MONTHLY_HOURS`+ during the prior month.
+ */
+export const AGENT_RAKEBACK_TIERS: RakebackTier[] = [
+  { minVip: 10, rate: 0.25 },
+  { minVip: 15, rate: 0.30 },
+  { minVip: 20, rate: 0.40 },
+  { minVip: 25, rate: 0.50 },
+];
+
+export const AGENT_MIN_MONTHLY_HOURS = 20;
+
+/** The highest tier whose `minVip` the count meets; 0 if below every tier. */
+export function rakebackRateForTier(tiers: RakebackTier[], vipCount: number): number {
+  let rate = 0;
+  for (const tier of tiers) {
+    if (vipCount >= tier.minVip) rate = tier.rate;
+  }
+  return rate;
+}
+
+/** The next tier up (for "N more VIP players to reach X%" UI), or null at the top. */
+export function nextRakebackTier(tiers: RakebackTier[], vipCount: number): RakebackTier | null {
+  return tiers.find((t) => vipCount < t.minVip) ?? null;
+}

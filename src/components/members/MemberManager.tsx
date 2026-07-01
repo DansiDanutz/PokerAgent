@@ -341,7 +341,10 @@ function ManageDrawer({
             <input name="hours" type="number" min="0" step="0.5" defaultValue={member.tableHours} className={inputCls} required />
             <Button type="submit" variant="ghost" className="shrink-0">Update</Button>
           </form>
-          <p className="mt-1 text-[11px] text-ink-500">4h+ promotes a verified player to VIP.</p>
+          <p className="mt-1 text-[11px] text-ink-500">
+            4h+ promotes a verified player to VIP. Players need 20h+ this month to count toward your
+            rakeback tier.
+          </p>
         </Section>
 
         {/* Agent promotion is request → admin approval, not an agent action. */}

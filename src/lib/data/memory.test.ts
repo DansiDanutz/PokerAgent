@@ -24,19 +24,28 @@ describe("MemoryRepository — network rollups", () => {
     expect(tree!.subtreeSize).toBe(8);
   });
 
-  it("summarizes commission from network rake", async () => {
+  it("computes own-business network stats — stops at the nested sub-agent, excludes L0 rake", async () => {
+    // Arjun's "own business" is alex, sara, marco (direct), plus alex's own
+    // players (liam, mia, noah) — but NOT marco's players (diego, yuki),
+    // since marco is himself an agent and owns that downline's tier.
     const summary = await repo.getNetworkSummary("u_arjun");
     expect(summary.directReferrals).toBe(3);
-    expect(summary.totalNetwork).toBe(8);
-    expect(summary.commissionEarned).toBeGreaterThan(0);
+    expect(summary.totalNetwork).toBe(8); // whole subtree — informational only, unaffected
+    // Rakeback-eligible (KYC verified) own-business rake: alex 21_500 +
+    // marco 39_000 + mia 2_100 + noah 9_300 (sara/liam are L0, excluded;
+    // diego/yuki are marco's business, excluded).
+    expect(summary.networkRake).toBe(71_900);
+    // VIP+ (L2) own-business players: alex, marco, noah (sara/liam are L0;
+    // mia is L1 but under 4h so not VIP).
+    expect(summary.vipNetworkCount).toBe(3);
   });
 
-  it("excludes L0 (unverified) players' rake from network rake and commission", async () => {
-    // u_sara (pending), u_yuki and u_liam (unverified) are all L0 in the seed
-    // and must not count toward Arjun's rake/commission until they hit L1.
+  it("an agent below the 10-VIP minimum earns no commission — agent tiers start at 10", async () => {
+    // Arjun only has 3 own-business VIP players, below AGENT_RAKEBACK_TIERS'
+    // floor of 10 — agents earn nothing until they clear that bar.
     const summary = await repo.getNetworkSummary("u_arjun");
-    expect(summary.networkRake).toBe(78_800); // 89_800 total minus the three L0 players' rake
-    expect(summary.commissionEarned).toBe(15_760); // 20% of 78_800
+    expect(summary.commissionRate).toBe(0);
+    expect(summary.commissionEarned).toBe(0);
   });
 
   it("lets a non-agent player earn commission from their own network once they're VIP", async () => {
@@ -54,6 +63,78 @@ describe("MemoryRepository — network rollups", () => {
     const summary = await repo.getNetworkSummary("u_alex");
     expect(summary.networkRake).toBeGreaterThan(0); // mia/noah still generate rakeback-eligible rake
     expect(summary.commissionEarned).toBe(0); // but Alex isn't VIP, so he doesn't earn it
+  });
+});
+
+describe("MemoryRepository — agent rakeback tiers & monthly recalculation", () => {
+  let repo: MemoryRepository;
+  beforeEach(() => {
+    repo = new MemoryRepository();
+  });
+
+  /** Create `count` fresh verified players under `uplineReferralCode`, each with `hours` table hours. */
+  async function makeVipPlayers(uplineReferralCode: string, count: number, hours: number): Promise<string[]> {
+    const ids: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const created = await repo.createMember("u_admin", {
+        username: `vip${i}${Math.random().toString(36).slice(2, 8)}`,
+        fullName: `Vip Player ${i}`,
+        email: `vip${i}${Math.random().toString(36).slice(2, 8)}@test.com`,
+        uplineReferralCode,
+      });
+      await repo.setKycStatus("u_admin", created.id, "verified");
+      await repo.setMemberTableHours("u_admin", created.id, hours);
+      ids.push(created.id);
+    }
+    return ids;
+  }
+
+  it("reaches the 25% tier at exactly 10 own-business VIP players", async () => {
+    await makeVipPlayers("PAGENT-NADIA7", 10, 25);
+    const summary = await repo.getNetworkSummary("u_nadia");
+    expect(summary.vipNetworkCount).toBe(10);
+    expect(summary.commissionRate).toBe(0.25);
+  });
+
+  it("recalculateMonthlyRakebackTiers only counts VIP players who played 20h+ since the last snapshot", async () => {
+    // u_arjun's 3 own-business VIP players: alex (6h), marco (80h), noah
+    // (12h) — only marco clears the 20h/month bar, despite all 3 being VIP.
+    const changes = await repo.recalculateMonthlyRakebackTiers();
+    const arjunChange = changes.find((c) => c.agentId === "u_arjun")!;
+    expect(arjunChange.qualifiedVipCount).toBe(1);
+    expect(arjunChange.newRate).toBe(0); // 1 qualified VIP is still below the 10-VIP floor
+  });
+
+  it("locks in the agent's rate for the month, overriding live headcount changes", async () => {
+    await makeVipPlayers("PAGENT-NADIA7", 10, 25);
+    const changes = await repo.recalculateMonthlyRakebackTiers();
+    const nadiaChange = changes.find((c) => c.agentId === "u_nadia")!;
+    expect(nadiaChange.previousRate).toBe(0);
+    expect(nadiaChange.newRate).toBe(0.25);
+    expect(nadiaChange.qualifiedVipCount).toBe(10);
+
+    const locked = (await repo.getUser("u_nadia"))!;
+    expect(locked.currentRakebackRate).toBe(0.25);
+    expect(locked.rakebackTierAsOf).toBeTruthy();
+
+    // Even if live headcount would now say a lower tier, the locked rate wins.
+    const [firstVip] = await repo.listDownline("u_nadia");
+    await repo.setKycStatus("u_admin", firstVip.id, "rejected");
+    const summary = await repo.getNetworkSummary("u_nadia");
+    expect(summary.commissionRate).toBe(0.25);
+  });
+
+  it("resets the hours snapshot baseline for every user after recalculation", async () => {
+    await repo.recalculateMonthlyRakebackTiers();
+    const alex = (await repo.getUser("u_alex"))!;
+    expect(alex.stats.lastMonthlySnapshotHours).toBe(alex.stats.tableHours);
+  });
+
+  it("uses a live-fallback rate for agents who predate a monthly recalculation", async () => {
+    // u_nadia has never had a cron run — her rate should be computed live
+    // from the current own-business VIP count (0 today: only Tom, who isn't VIP).
+    const summary = await repo.getNetworkSummary("u_nadia");
+    expect(summary.commissionRate).toBe(0);
   });
 });
 
@@ -190,6 +271,9 @@ describe("MemoryRepository — agent member management", () => {
     const approved = await repo.decideAgentRequest("u_admin", "u_noah", "approved");
     expect(approved.role).toBe("agent");
     expect(approved.agentRequest).toBe("none");
+    // Noah has no downline yet — his provisional rate is the 0-VIP tier (0%).
+    expect(approved.currentRakebackRate).toBe(0);
+    expect(approved.rakebackTierAsOf).toBeTruthy();
   });
 
   it("only semebitcoin@gmail.com can hold admin", async () => {

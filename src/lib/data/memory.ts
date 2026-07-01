@@ -21,20 +21,36 @@ import type {
   CreateMemberInput,
   CreateTransferInput,
   CreditMemberInput,
+  RakebackTierChange,
   RecordCashInput,
   Repository,
   SweepResult,
 } from "./repository";
 import { buildNewMember } from "./newMember";
 import { ADMIN_EMAIL, isAdminEmail } from "@/lib/governance";
-import { isRakebackEligible, canEarnReferrals } from "@/lib/levels";
+import {
+  isRakebackEligible,
+  canEarnReferrals,
+  memberStatus,
+  rakebackRateForTier,
+  REFERRAL_RAKEBACK_TIERS,
+  AGENT_RAKEBACK_TIERS,
+  AGENT_MIN_MONTHLY_HOURS,
+} from "@/lib/levels";
+import { flattenNetwork, flattenOwnBusiness } from "@/lib/network";
 import { isDormant } from "@/lib/activity";
 import { SEED_NOTIFICATIONS, SEED_PASSWORD_HASH, SEED_TRANSACTIONS, SEED_USERS } from "./seed";
 
-/** Agent commission as a fraction of downline rake (illustrative default). */
-export const AGENT_COMMISSION_RATE = 0.2;
-
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+
+/** `LevelInputs` shape for a network node — VIP/rakeback status is driven by the member themselves, not the viewer. */
+function levelInputsFor(n: NetworkNode): { kycVerified: boolean; tableHours: number; directReferrals: number } {
+  return {
+    kycVerified: n.user.kycStatus === "verified",
+    tableHours: n.user.stats.tableHours,
+    directReferrals: n.children.length,
+  };
+}
 
 export class MemoryRepository implements Repository {
   private users: Map<string, User>;
@@ -174,25 +190,20 @@ export class MemoryRepository implements Repository {
   async getNetworkSummary(agentId: string): Promise<NetworkSummary> {
     const agent = this.users.get(agentId);
     const node = agent ? this.buildNode(agent) : null;
-    const flat: NetworkNode[] = [];
-    const walk = (n: NetworkNode) => {
-      n.children.forEach((c) => {
-        flat.push(c);
-        walk(c);
-      });
-    };
-    if (node) walk(node);
+    // Whole subtree — informational totals only ("how big is your empire").
+    const flat = node ? flattenNetwork(node) : [];
+    // "Own business" — stops descending past a nested agent, since a
+    // sub-agent's downline is that sub-agent's tier, not their upline's.
+    // This is the scope that drives every money calculation below.
+    const own = node ? flattenOwnBusiness(node) : [];
+
     // L0 (not yet KYC-verified) players can play, but their rake doesn't
     // count toward the agent's commission until they reach L1 — this is the
     // lever an agent has to chase: get players verified to start earning.
-    const rakebackEligible = flat.filter((n) =>
-      isRakebackEligible({
-        kycVerified: n.user.kycStatus === "verified",
-        tableHours: n.user.stats.tableHours,
-        directReferrals: n.children.length,
-      }),
-    );
-    const networkRake = rakebackEligible.reduce((s, n) => s + n.user.stats.rakeGenerated, 0);
+    const rakebackEligibleOwn = own.filter((n) => isRakebackEligible(levelInputsFor(n)));
+    const networkRake = rakebackEligibleOwn.reduce((s, n) => s + n.user.stats.rakeGenerated, 0);
+    const vipNetworkCount = own.filter((n) => memberStatus(levelInputsFor(n)) === "vip_player").length;
+
     // A negative agent is frozen: they stop earning (displayed) commission until
     // they settle their balance back to zero or above.
     const frozen = (agent?.balance ?? 0) < 0;
@@ -206,12 +217,26 @@ export class MemoryRepository implements Repository {
         tableHours: agent.stats.tableHours,
         directReferrals: node?.children.length ?? 0,
       });
+
+    let commissionRate = 0;
+    if (agent && selfEarns && !frozen) {
+      // Agents: a locked monthly rate (see recalculateMonthlyRakebackTiers)
+      // takes over once set; undefined only for pre-feature agents who
+      // haven't hit a monthly run yet, which falls back to a live estimate.
+      commissionRate =
+        agent.role === "agent"
+          ? (agent.currentRakebackRate ?? rakebackRateForTier(AGENT_RAKEBACK_TIERS, vipNetworkCount))
+          : rakebackRateForTier(REFERRAL_RAKEBACK_TIERS, vipNetworkCount);
+    }
+
     return {
       directReferrals: node ? node.children.length : 0,
       totalNetwork: flat.length,
       activePlayers: flat.filter((n) => n.user.stats.handsPlayed > 0).length,
       networkRake,
-      commissionEarned: frozen || !selfEarns ? 0 : Math.round(networkRake * AGENT_COMMISSION_RATE),
+      commissionEarned: Math.round(networkRake * commissionRate),
+      commissionRate,
+      vipNetworkCount,
       frozen,
       currency: agent?.currency ?? "USD",
     };
@@ -399,6 +424,14 @@ export class MemoryRepository implements Repository {
     if (decision === "approved") {
       user.role = "agent";
       user.agentRequest = "none";
+      // Provisional rate from the live VIP count so a brand-new agent isn't
+      // stuck at 0% until the next monthly recalculation locks in the real,
+      // qualified rate.
+      const vipCount = flattenOwnBusiness(this.buildNode(user)).filter(
+        (n) => memberStatus(levelInputsFor(n)) === "vip_player",
+      ).length;
+      user.currentRakebackRate = rakebackRateForTier(AGENT_RAKEBACK_TIERS, vipCount);
+      user.rakebackTierAsOf = this.now();
     } else {
       user.agentRequest = "rejected";
     }
@@ -641,6 +674,37 @@ export class MemoryRepository implements Repository {
       agent.balance -= amount;
 
       results.push({ playerId: player.id, agentId: agent.id, amount, agentNowNegative: agent.balance < 0 });
+    }
+    return results;
+  }
+
+  // --- monthly rakeback tier recalculation ----------------------------------
+  async recalculateMonthlyRakebackTiers(): Promise<RakebackTierChange[]> {
+    const ts = this.now();
+    const qualifies = (n: NetworkNode): boolean => {
+      const played = n.user.stats.tableHours - (n.user.stats.lastMonthlySnapshotHours ?? 0);
+      if (played < AGENT_MIN_MONTHLY_HOURS) return false;
+      return memberStatus(levelInputsFor(n)) === "vip_player";
+    };
+
+    const results: RakebackTierChange[] = [];
+    for (const agent of [...this.users.values()].filter((u) => u.role === "agent")) {
+      const qualifiedVipCount = flattenOwnBusiness(this.buildNode(agent)).filter(qualifies).length;
+      const newRate = rakebackRateForTier(AGENT_RAKEBACK_TIERS, qualifiedVipCount);
+      results.push({
+        agentId: agent.id,
+        previousRate: agent.currentRakebackRate ?? 0,
+        newRate,
+        qualifiedVipCount,
+      });
+      agent.currentRakebackRate = newRate;
+      agent.rakebackTierAsOf = ts;
+    }
+
+    // Reset the hours baseline for EVERY user (not just agents' downlines)
+    // so next month's delta is correct platform-wide.
+    for (const u of this.users.values()) {
+      u.stats = { ...u.stats, lastMonthlySnapshotHours: u.stats.tableHours };
     }
     return results;
   }

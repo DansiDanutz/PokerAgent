@@ -10,7 +10,7 @@ create type user_role as enum ('player', 'agent', 'admin');
 create type kyc_status as enum ('unverified', 'pending', 'verified', 'rejected');
 create type account_status as enum ('active', 'suspended', 'banned');
 create type tx_type as enum (
-  'deposit', 'withdrawal', 'transfer_in', 'transfer_out', 'rake_rebate', 'adjustment'
+  'deposit', 'withdrawal', 'transfer_in', 'transfer_out', 'rake_rebate', 'adjustment', 'agent_credit'
 );
 create type tx_status as enum ('pending', 'approved', 'rejected', 'completed');
 create type notification_kind as enum (
@@ -36,6 +36,7 @@ create table profiles (
   clubgg_id text,
   clubgg_nickname text,
   balance bigint not null default 0,
+  credit_limit bigint not null default 0,
   currency text not null default 'USD',
   -- denormalized lifetime stats
   hands_played bigint not null default 0,
@@ -43,6 +44,11 @@ create table profiles (
   rake_generated bigint not null default 0,
   win_rate_bb100 numeric not null default 0,
   sessions int not null default 0,
+  table_hours numeric not null default 0,
+  -- rakeback tier tracking (agents only, see recalculateMonthlyRakebackTiers)
+  current_rakeback_rate numeric,
+  rakeback_tier_as_of timestamptz,
+  last_monthly_snapshot_hours bigint not null default 0,
   created_at timestamptz not null default now(),
   last_active_at timestamptz
 );
