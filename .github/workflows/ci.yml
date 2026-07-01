@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    name: Test, build, typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      # `next build` generates .next/types/**/*.ts, which tsconfig.json
+      # includes — `tsc` fails with TS6053 "file not found" on a fresh
+      # checkout if typecheck runs before the first build. Build (which does
+      # its own type-checking as part of "Linting and checking validity of
+      # types") must run first; the typecheck step after it is a fast,
+      # explicit confirmation with clearer failure output.
+      - name: Build
+        run: npm run build
+
+      - name: Typecheck
+        run: npm run typecheck
