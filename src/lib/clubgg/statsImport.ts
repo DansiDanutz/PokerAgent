@@ -194,8 +194,12 @@ export function parseClubggStats(csv: string): ClubggParseResult {
   const header = parseCsvLine(lines[0]);
   const colIndex: Partial<Record<Field, number>> = {};
   header.forEach((h, idx) => {
-    const field = COLUMN_ALIASES[headerKey(h)];
-    if (field && !(field in colIndex)) colIndex[field] = idx;
+    const key = headerKey(h);
+    // Object.hasOwn guard: a header literally named "constructor", "toString",
+    // etc. would otherwise resolve to an inherited Object.prototype member on
+    // the plain COLUMN_ALIASES object instead of undefined.
+    const field = Object.hasOwn(COLUMN_ALIASES, key) ? COLUMN_ALIASES[key] : undefined;
+    if (field && colIndex[field] === undefined) colIndex[field] = idx;
   });
 
   if (colIndex.clubggId === undefined) {

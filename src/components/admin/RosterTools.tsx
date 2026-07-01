@@ -8,6 +8,21 @@ import type { AdminUserRow } from "./AdminUserManager";
 
 const SAMPLE = "username,full_name,email,upline_code,clubgg_id,balance\njdoe,John Doe,jdoe@mail.com,PAGENT-ARJUN12,9001234,100";
 
+/**
+ * Escape one CSV cell safely. Beyond normal quoting, this neutralizes
+ * spreadsheet **formula injection**: a cell starting with =, +, -, @, tab, or
+ * CR is executed as a formula by Excel/Sheets when the file is opened. Since
+ * usernames and full names are user-controlled, a member named e.g.
+ * `=HYPERLINK(...)` would otherwise run in the admin's spreadsheet. Prefixing
+ * such cells with a single quote makes them inert text.
+ */
+function csvCell(value: unknown): string {
+  let s = String(value ?? "");
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  if (/[",\n\r]/.test(s)) s = `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
 function toCsv(users: AdminUserRow[]): string {
   // `upline` holds the agent's INVITE CODE (not the internal id) so the sheet
   // round-trips through Import, which links members by invite code. `upline_name`
@@ -28,7 +43,7 @@ function toCsv(users: AdminUserRow[]): string {
       (u.balance / 100).toFixed(2),
       (u.rake / 100).toFixed(2),
     ]
-      .map((v) => (String(v).includes(",") ? `"${v}"` : String(v)))
+      .map(csvCell)
       .join(","),
   );
   return [header, ...rows].join("\n");
