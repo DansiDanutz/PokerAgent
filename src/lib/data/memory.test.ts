@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { MemoryRepository } from "./memory";
+import type { User } from "@/types/domain";
 
 describe("MemoryRepository — network rollups", () => {
   let repo: MemoryRepository;
@@ -652,5 +653,85 @@ describe("MemoryRepository — dormant-user free agency", () => {
 
     const nadiaNotifs = await repo.listNotifications("u_nadia");
     expect(nadiaNotifs.some((n) => /new member joined/i.test(n.title))).toBe(true);
+  });
+});
+
+describe("MemoryRepository — ClubGG stats import", () => {
+  let repo: MemoryRepository;
+  beforeEach(() => {
+    repo = new MemoryRepository();
+  });
+
+  // alex (8842014, VIP/eligible), liam (8842090, L0/not eligible), + an unlinked id.
+  const rows = [
+    { clubggId: "8842014", nickname: "alex", handsPlayed: 1000, rake: 10000, buyIn: 0, cashOut: 0, profitLoss: 0, hours: 4 },
+    { clubggId: "8842090", nickname: "liam", handsPlayed: 100, rake: 1000, buyIn: 0, cashOut: 0, profitLoss: 0, hours: 0 },
+    { clubggId: "9999999", nickname: "ghost", handsPlayed: 50, rake: 500, buyIn: 0, cashOut: 0, profitLoss: 0 },
+  ];
+
+  it("previews a distribution without mutating any balance or stat", async () => {
+    const alexBefore = (await repo.getUser("u_alex"))!;
+    const plan = await repo.previewStatsImport("u_admin", rows);
+
+    // Nothing changed.
+    const alexAfter = (await repo.getUser("u_alex"))!;
+    expect(alexAfter.balance).toBe(alexBefore.balance);
+    expect(alexAfter.stats.rakeGenerated).toBe(alexBefore.stats.rakeGenerated);
+
+    expect(plan.totals.matched).toBe(2);
+    expect(plan.totals.unmatched).toBe(1);
+    expect(plan.warnings.join(" ")).toMatch(/9999999/);
+
+    const alexLine = plan.lines.find((l) => l.clubggId === "8842014")!;
+    expect(alexLine.rakebackEligible).toBe(true);
+    expect(alexLine.playerRakeback).toBe(1000); // 10000 * 0.10
+
+    const liamLine = plan.lines.find((l) => l.clubggId === "8842090")!;
+    expect(liamLine.matched).toBe(true);
+    expect(liamLine.rakebackEligible).toBe(false); // L0 — no rakeback
+    expect(liamLine.playerRakeback).toBe(0);
+  });
+
+  it("applies stat deltas and personal rakeback to an eligible player", async () => {
+    const alexBefore = (await repo.getUser("u_alex"))!;
+    await repo.applyStatsImport("u_admin", rows);
+
+    const alex = (await repo.getUser("u_alex"))!;
+    expect(alex.balance).toBe(alexBefore.balance + 1000); // rakeback credited
+    expect(alex.stats.rakeGenerated).toBe(alexBefore.stats.rakeGenerated + 10000);
+    expect(alex.stats.handsPlayed).toBe(alexBefore.stats.handsPlayed + 1000);
+    expect(alex.stats.tableHours).toBe(alexBefore.stats.tableHours + 4);
+  });
+
+  it("credits an agent's rake settlement at their effective rate", async () => {
+    // Seed agents sit below the 10-VIP agent tier (rate 0). Lock a rate on
+    // Arjun so the settlement/credit path is exercised deterministically.
+    (repo as unknown as { users: Map<string, User> }).users.get("u_arjun")!.currentRakebackRate = 0.25;
+
+    const arjunBefore = (await repo.getUser("u_arjun"))!.balance;
+    const plan = await repo.applyStatsImport("u_admin", rows);
+
+    // Only alex's 10000 is eligible (liam is L0) → periodRake 10000 @ 25%.
+    const settle = plan.settlements.find((s) => s.agentId === "u_arjun")!;
+    expect(settle.periodRake).toBe(10000);
+    expect(settle.commission).toBe(2500);
+    expect((await repo.getUser("u_arjun"))!.balance).toBe(arjunBefore + 2500);
+
+    const settlements = await repo.listSettlements();
+    expect(settlements.some((t) => t.userId === "u_arjun" && /Rake settlement/.test(t.note ?? ""))).toBe(true);
+  });
+
+  it("still updates an ineligible player's stats but pays them no rakeback", async () => {
+    const liamBefore = (await repo.getUser("u_liam"))!;
+    await repo.applyStatsImport("u_admin", rows);
+    const liam = (await repo.getUser("u_liam"))!;
+    expect(liam.stats.handsPlayed).toBe(liamBefore.stats.handsPlayed + 100);
+    expect(liam.stats.rakeGenerated).toBe(liamBefore.stats.rakeGenerated + 1000);
+    expect(liam.balance).toBe(liamBefore.balance); // no rakeback
+  });
+
+  it("refuses a non-admin caller", async () => {
+    await expect(repo.applyStatsImport("u_alex", rows)).rejects.toThrow(/admin/i);
+    await expect(repo.previewStatsImport("u_arjun", rows)).rejects.toThrow(/admin/i);
   });
 });

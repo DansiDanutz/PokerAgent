@@ -30,6 +30,8 @@ import type {
   Repository,
   SweepResult,
 } from "./repository";
+import type { ClubggMemberStats } from "@/lib/clubgg/statsImport";
+import { planDistribution, type StatsImportPlan, type DistributionMember } from "@/lib/clubgg/distribution";
 import { buildNewMember } from "./newMember";
 import { ADMIN_EMAIL, isAdminEmail } from "@/lib/governance";
 import {
@@ -42,6 +44,7 @@ import {
   REFERRAL_RAKEBACK_TIERS,
   AGENT_RAKEBACK_TIERS,
   AGENT_MIN_MONTHLY_HOURS,
+  PLAYER_RAKEBACK_RATE,
 } from "@/lib/levels";
 import { flattenNetwork, flattenOwnBusiness } from "@/lib/network";
 import { isDormant } from "@/lib/activity";
@@ -840,6 +843,110 @@ export class SupabaseRepository implements Repository {
       results.push({ playerId: player.id, agentId: agent.id, amount, agentNowNegative: agentNewBalance < 0 });
     }
     return results;
+  }
+
+  // --- ClubGG stats import -------------------------------------------------
+  /** Build the distribution plan from CURRENT state (all reads, no mutation). */
+  private async buildStatsImportPlan(adminId: string, rows: ClubggMemberStats[]): Promise<StatsImportPlan> {
+    await this.assertAdmin(adminId);
+    const users = await this.allProfiles();
+    const byId = new Map(users.map((u) => [u.id, u]));
+    const childCount = new Map<string, number>();
+    for (const u of users) {
+      if (u.uplineAgentId) childCount.set(u.uplineAgentId, (childCount.get(u.uplineAgentId) ?? 0) + 1);
+    }
+    const levelInputs = (u: User) => ({
+      kycVerified: u.kycStatus === "verified",
+      tableHours: u.stats.tableHours,
+      directReferrals: childCount.get(u.id) ?? 0,
+    });
+    const membersByClubId = new Map<string, DistributionMember>();
+    const eligibleIds = new Set<string>();
+    for (const u of users) {
+      if (u.clubggId) membersByClubId.set(u.clubggId, { id: u.id, username: u.username });
+      if (isRakebackEligible(levelInputs(u))) eligibleIds.add(u.id);
+    }
+    const ownerAgentOf = (userId: string): string | null => {
+      let cur = byId.get(userId)?.uplineAgentId ?? null;
+      let guard = 0;
+      while (cur && guard++ < 100) {
+        const u = byId.get(cur);
+        if (!u) break;
+        if (u.role === "agent") return u.id;
+        if (u.role === "admin") return null; // platform root — no agent commission
+        cur = u.uplineAgentId ?? null;
+      }
+      return null;
+    };
+    const rateByAgent = new Map<string, number>();
+    const nameByAgent = new Map<string, string>();
+    for (const u of users) {
+      if (u.role !== "agent") continue;
+      nameByAgent.set(u.id, u.username);
+      rateByAgent.set(u.id, (await this.getNetworkSummary(u.id)).commissionRate);
+    }
+    return planDistribution(rows, {
+      playerRakebackRate: PLAYER_RAKEBACK_RATE,
+      membersByClubId,
+      rakebackEligible: (id) => eligibleIds.has(id),
+      ownerAgentOf,
+      agentRate: (id) => rateByAgent.get(id) ?? 0,
+      agentUsername: (id) => nameByAgent.get(id) ?? id,
+    });
+  }
+
+  async previewStatsImport(adminId: string, rows: ClubggMemberStats[]): Promise<StatsImportPlan> {
+    return this.buildStatsImportPlan(adminId, rows);
+  }
+
+  async applyStatsImport(adminId: string, rows: ClubggMemberStats[]): Promise<StatsImportPlan> {
+    const plan = await this.buildStatsImportPlan(adminId, rows);
+    const ts = new Date().toISOString();
+
+    // 1) Stat deltas (direct update) + personal rakeback (atomic credit).
+    for (const line of plan.lines) {
+      if (!line.matched || !line.userId) continue;
+      const user = await this.profile(line.userId);
+      if (!user) continue;
+      const s = user.stats;
+      const { error } = await this.db
+        .from("pa_profiles")
+        .update({
+          hands_played: s.handsPlayed + line.handsPlayed,
+          table_hours: s.tableHours + line.tableHours,
+          rake_generated: s.rakeGenerated + line.rake,
+          net_profit: s.netProfit + line.netProfit,
+          sessions: s.sessions + (line.handsPlayed > 0 ? 1 : 0),
+        })
+        .eq("id", user.id);
+      if (error) dbError(error);
+      if (line.playerRakeback > 0) {
+        await this.insertTx({
+          id: this.newId("t"), userId: user.id, type: "rake_rebate", amount: line.playerRakeback,
+          currency: user.currency, status: "completed", note: "ClubGG rakeback", createdAt: ts, processedBy: adminId,
+        });
+        await this.adjustBalance(user.id, line.playerRakeback);
+      }
+    }
+
+    // 2) Agent settlements (admin → agent).
+    for (const st of plan.settlements) {
+      const agent = await this.profile(st.agentId);
+      if (!agent) continue;
+      await this.insertTx({
+        id: this.newId("t"), userId: agent.id, type: "agent_credit", amount: st.commission,
+        currency: agent.currency, status: "completed",
+        note: `Rake settlement · ${formatMoney(st.periodRake, agent.currency)} @ ${Math.round(st.rate * 100)}%`,
+        createdAt: ts, processedBy: adminId,
+      });
+      await this.adjustBalance(agent.id, st.commission);
+      await this.addNotification({
+        userId: agent.id, kind: "money", title: "Rake settlement paid",
+        body: `You earned ${formatMoney(st.commission, agent.currency)} commission on ${formatMoney(st.periodRake, agent.currency)} of network rake.`,
+      });
+    }
+
+    return plan;
   }
 
   // --- monthly rakeback tier recalculation ----------------------------------

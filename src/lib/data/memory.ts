@@ -26,6 +26,8 @@ import type {
   Repository,
   SweepResult,
 } from "./repository";
+import type { ClubggMemberStats } from "@/lib/clubgg/statsImport";
+import { planDistribution, type StatsImportPlan, type DistributionMember } from "@/lib/clubgg/distribution";
 import { randomBytes } from "node:crypto";
 import { buildNewMember } from "./newMember";
 import { hashPassword } from "@/lib/auth/password";
@@ -40,6 +42,7 @@ import {
   REFERRAL_RAKEBACK_TIERS,
   AGENT_RAKEBACK_TIERS,
   AGENT_MIN_MONTHLY_HOURS,
+  PLAYER_RAKEBACK_RATE,
 } from "@/lib/levels";
 import { flattenNetwork, flattenOwnBusiness } from "@/lib/network";
 import { isDormant } from "@/lib/activity";
@@ -712,6 +715,107 @@ export class MemoryRepository implements Repository {
       results.push({ playerId: player.id, agentId: agent.id, amount, agentNowNegative: agent.balance < 0 });
     }
     return results;
+  }
+
+  // --- ClubGG stats import -------------------------------------------------
+  private levelInputsForUser(u: User) {
+    return {
+      kycVerified: u.kycStatus === "verified",
+      tableHours: u.stats.tableHours,
+      directReferrals: this.childrenOf(u.id).length,
+    };
+  }
+
+  /** Nearest AGENT ancestor (own-business owner); null if only admin is above. */
+  private ownerAgentOf(userId: string): User | null {
+    let cur = this.users.get(userId)?.uplineAgentId ?? null;
+    let guard = 0;
+    while (cur && guard++ < 100) {
+      const u = this.users.get(cur);
+      if (!u) break;
+      if (u.role === "agent") return u;
+      if (u.role === "admin") return null; // platform root — no agent commission
+      cur = u.uplineAgentId ?? null;
+    }
+    return null;
+  }
+
+  /** Compute the full distribution plan from CURRENT state, mutating nothing. */
+  private async buildStatsImportPlan(adminId: string, rows: ClubggMemberStats[]): Promise<StatsImportPlan> {
+    this.assertAdmin(adminId);
+    const membersByClubId = new Map<string, DistributionMember>();
+    const eligibleIds = new Set<string>();
+    for (const u of this.users.values()) {
+      if (u.clubggId) membersByClubId.set(u.clubggId, { id: u.id, username: u.username });
+      if (isRakebackEligible(this.levelInputsForUser(u))) eligibleIds.add(u.id);
+    }
+    // Effective commission rate per agent (0 when frozen / below the agent tier).
+    const rateByAgent = new Map<string, number>();
+    const nameByAgent = new Map<string, string>();
+    for (const u of this.users.values()) {
+      if (u.role !== "agent") continue;
+      nameByAgent.set(u.id, u.username);
+      rateByAgent.set(u.id, (await this.getNetworkSummary(u.id)).commissionRate);
+    }
+    return planDistribution(rows, {
+      playerRakebackRate: PLAYER_RAKEBACK_RATE,
+      membersByClubId,
+      rakebackEligible: (id) => eligibleIds.has(id),
+      ownerAgentOf: (id) => this.ownerAgentOf(id)?.id ?? null,
+      agentRate: (id) => rateByAgent.get(id) ?? 0,
+      agentUsername: (id) => nameByAgent.get(id) ?? id,
+    });
+  }
+
+  async previewStatsImport(adminId: string, rows: ClubggMemberStats[]): Promise<StatsImportPlan> {
+    return clone(await this.buildStatsImportPlan(adminId, rows));
+  }
+
+  async applyStatsImport(adminId: string, rows: ClubggMemberStats[]): Promise<StatsImportPlan> {
+    // Plan from PRE-import state so rates/eligibility are deterministic and
+    // preview == apply. Then commit stat deltas, rakeback and settlements.
+    const plan = await this.buildStatsImportPlan(adminId, rows);
+    const ts = this.now();
+
+    for (const line of plan.lines) {
+      if (!line.matched || !line.userId) continue;
+      const member = this.users.get(line.userId);
+      if (!member) continue;
+      member.stats = {
+        ...member.stats,
+        handsPlayed: member.stats.handsPlayed + line.handsPlayed,
+        tableHours: member.stats.tableHours + line.tableHours,
+        rakeGenerated: member.stats.rakeGenerated + line.rake,
+        netProfit: member.stats.netProfit + line.netProfit,
+        sessions: member.stats.sessions + (line.handsPlayed > 0 ? 1 : 0),
+      };
+      if (line.playerRakeback > 0) {
+        member.balance += line.playerRakeback;
+        this.transactions.push({
+          id: this.id("t"), userId: member.id, type: "rake_rebate",
+          amount: line.playerRakeback, currency: member.currency, status: "completed",
+          note: "ClubGG rakeback", createdAt: ts, processedBy: adminId,
+        });
+      }
+    }
+
+    for (const s of plan.settlements) {
+      const agent = this.users.get(s.agentId);
+      if (!agent) continue;
+      agent.balance += s.commission;
+      this.transactions.push({
+        id: this.id("t"), userId: agent.id, type: "agent_credit",
+        amount: s.commission, currency: agent.currency, status: "completed",
+        note: `Rake settlement · ${formatMoney(s.periodRake, agent.currency)} @ ${Math.round(s.rate * 100)}%`,
+        createdAt: ts, processedBy: adminId,
+      });
+      await this.addNotification({
+        userId: agent.id, kind: "money", title: "Rake settlement paid",
+        body: `You earned ${formatMoney(s.commission, agent.currency)} commission on ${formatMoney(s.periodRake, agent.currency)} of network rake.`,
+      });
+    }
+
+    return clone(plan);
   }
 
   // --- monthly rakeback tier recalculation ----------------------------------

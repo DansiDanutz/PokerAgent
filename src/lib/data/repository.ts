@@ -16,6 +16,8 @@ import type {
   TransactionType,
   User,
 } from "@/types/domain";
+import type { ClubggMemberStats } from "@/lib/clubgg/statsImport";
+import type { StatsImportPlan } from "@/lib/clubgg/distribution";
 
 export interface CreateTransferInput {
   fromUserId: string;
@@ -163,6 +165,21 @@ export interface Repository {
   sweepNegativeBalances(): Promise<SweepResult[]>;
   /** Create a notification (used by the sweep job and other money events). */
   addNotification(input: Omit<Notification, "id" | "read" | "createdAt">): Promise<Notification>;
+
+  // --- ClubGG stats import (admin: distribute a downloaded stats period) ---
+  /**
+   * Compute the full distribution PLAN for a set of parsed ClubGG rows WITHOUT
+   * mutating anything — the admin's dry-run preview. Links rows to profiles by
+   * clubgg_id, computes per-member stat deltas + personal rakeback and
+   * per-agent settlements. Admin only.
+   */
+  previewStatsImport(adminId: string, rows: ClubggMemberStats[]): Promise<StatsImportPlan>;
+  /**
+   * Apply a stats period: increment each matched member's stats, pay personal
+   * rakeback, and settle each agent's commission — atomically. Returns the plan
+   * that was actually applied. Admin only.
+   */
+  applyStatsImport(adminId: string, rows: ClubggMemberStats[]): Promise<StatsImportPlan>;
 
   // --- monthly rakeback tier recalculation (cron) ---
   /**

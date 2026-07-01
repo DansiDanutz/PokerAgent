@@ -10,6 +10,8 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { z } from "zod";
 import { getRepository } from "@/lib/data";
+import { parseClubggStats } from "@/lib/clubgg/statsImport";
+import type { StatsImportPlan } from "@/lib/clubgg/distribution";
 import { clearSession, getCurrentUser, setSession } from "@/lib/auth/session";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { assertNotLockedOut, clearFailedAttempts, recordFailedAttempt } from "@/lib/auth/rateLimit";
@@ -482,6 +484,53 @@ export async function importRoster(_prev: ImportResult, formData: FormData): Pro
   }
   revalidatePath("/admin");
   return { created, errors };
+}
+
+// --- ClubGG stats import: paste CSV → preview distribution → apply ----------
+
+/** Hard cap on rows a single import will parse — keeps a giant paste bounded. */
+const MAX_IMPORT_ROWS = 5000;
+
+export type StatsImportState = {
+  plan?: StatsImportPlan;
+  /** Set once an apply has committed, so the UI can show a success banner. */
+  applied?: boolean;
+  /** Parse-level warnings (unmapped columns, skipped rows). */
+  parseWarnings?: string[];
+  error?: string;
+};
+
+/**
+ * One action drives both steps via a `mode` field: "preview" computes the
+ * distribution without touching balances; "apply" commits it. Applying always
+ * re-parses and re-computes server-side from the submitted CSV — the client
+ * never sends amounts, so a tampered preview can't move money.
+ */
+export async function runStatsImport(_prev: StatsImportState, formData: FormData): Promise<StatsImportState> {
+  const admin = await requireAdmin();
+  const mode = formData.get("mode") === "apply" ? "apply" : "preview";
+  const text = String(formData.get("csv") ?? "").trim();
+  if (!text) return { error: "Paste the ClubGG stats CSV first." };
+
+  const { rows, warnings } = parseClubggStats(text);
+  if (rows.length === 0) {
+    return { error: warnings[0] ?? "No usable rows found in that CSV.", parseWarnings: warnings };
+  }
+  if (rows.length > MAX_IMPORT_ROWS) {
+    return { error: `That file has ${rows.length} rows — the import cap is ${MAX_IMPORT_ROWS}. Split it and try again.` };
+  }
+
+  const repo = getRepository();
+  try {
+    const plan =
+      mode === "apply"
+        ? await repo.applyStatsImport(admin.id, rows)
+        : await repo.previewStatsImport(admin.id, rows);
+    if (mode === "apply") revalidatePath("/admin");
+    return { plan, applied: mode === "apply", parseWarnings: warnings };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Import failed", parseWarnings: warnings };
+  }
 }
 
 export async function setKyc(

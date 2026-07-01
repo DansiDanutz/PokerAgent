@@ -10,6 +10,7 @@ import { UserPlus } from "lucide-react";
 import { TX_META } from "@/components/wallet/txMeta";
 import { AdminUserManager, type AdminUserRow } from "@/components/admin/AdminUserManager";
 import { RosterTools } from "@/components/admin/RosterTools";
+import { StatsImport } from "@/components/admin/StatsImport";
 import { formatMoney, formatNumber, formatDate } from "@/lib/format";
 export default async function AdminPage() {
   const user = await getCurrentUser();
@@ -270,6 +271,8 @@ export default async function AdminPage() {
           </details>
         )}
       </Card>
+
+      <StatsImport currency={overview.currency} />
 
       <RosterTools users={adminRows} />
 
