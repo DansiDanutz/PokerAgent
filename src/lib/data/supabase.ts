@@ -36,6 +36,8 @@ import {
   isRakebackEligible,
   canEarnReferrals,
   memberStatus,
+  agentProgress,
+  AGENT_MIN_VIP_NETWORK,
   rakebackRateForTier,
   REFERRAL_RAKEBACK_TIERS,
   AGENT_RAKEBACK_TIERS,
@@ -43,6 +45,7 @@ import {
 } from "@/lib/levels";
 import { flattenNetwork, flattenOwnBusiness } from "@/lib/network";
 import { isDormant } from "@/lib/activity";
+import { formatMoney } from "@/lib/format";
 
 type ProfileRow = {
   id: string;
@@ -564,6 +567,11 @@ export class SupabaseRepository implements Repository {
       currency: string; status: string; note: string | null; processed_by: string | null;
       created_at: string; applied: boolean;
     };
+    // applied=false means pa_approve_transaction's `WHERE status = 'pending'`
+    // guard didn't match — the transaction was already decided (by this
+    // call or a concurrent one). Throw instead of silently returning the
+    // unchanged row as if this decision took effect.
+    if (!row.applied) throw new Error("Request already decided");
     return toTx({
       id: row.id, user_id: row.user_id, counterparty_id: row.counterparty_id, type: row.type,
       amount: row.amount, currency: row.currency, status: row.status, note: row.note,
@@ -639,20 +647,30 @@ export class SupabaseRepository implements Repository {
     const player = await this.profile(playerId);
     if (!player) throw new Error("Player not found");
     if (creditLimit < 0) throw new Error("Credit limit cannot be negative");
-    if (actor.role !== "admin") {
-      if (player.uplineAgentId !== actorId) {
-        throw new Error("You can only set credit limits for your own players");
-      }
-      const all = await this.allProfiles();
-      const others = all
-        .filter((u) => u.uplineAgentId === actorId && u.id !== playerId)
-        .reduce((s, u) => s + (u.creditLimit ?? 0), 0);
-      if (others + creditLimit > actor.balance) {
+    const isAdmin = actor.role === "admin";
+    if (!isAdmin && player.uplineAgentId !== actorId) {
+      throw new Error("You can only set credit limits for your own players");
+    }
+    // Fast pre-checks for a clear error before the round trip; pa_set_credit_limit
+    // re-checks both under row locks (fixes a real race the pre-checks alone can't).
+    if (player.balance < -creditLimit) {
+      throw new Error(`${player.fullName} currently owes ${formatMoney(-player.balance, player.currency)} — you can't set the limit below that`);
+    }
+    const { error } = await this.db.rpc("pa_set_credit_limit", {
+      p_actor_id: actorId,
+      p_player_id: playerId,
+      p_credit_limit: creditLimit,
+      p_is_admin: isAdmin,
+    });
+    if (error) {
+      if (error.message === "pa_set_credit_limit: aggregate cap exceeded") {
         throw new Error("Total credit limits would exceed your balance");
       }
+      if (error.message === "pa_set_credit_limit: balance floor") {
+        throw new Error(`${player.fullName} currently owes ${formatMoney(-player.balance, player.currency)} — you can't set the limit below that`);
+      }
+      dbError(error);
     }
-    const { error } = await this.db.from("pa_profiles").update({ credit_limit: creditLimit }).eq("id", playerId);
-    if (error) dbError(error);
     return (await this.profile(playerId))!;
   }
 
@@ -668,6 +686,13 @@ export class SupabaseRepository implements Repository {
     const user = await this.profile(userId);
     if (!user) throw new Error("User not found");
     if (user.role !== "player") throw new Error("Only players can request agent status");
+    // Mirrors the dashboard's "Path to Agent" gate (agentProgress) — without
+    // this, any player could bypass the UI and request agent status with 0
+    // qualifying VIP referrals.
+    const { vipNetworkCount } = await this.getNetworkSummary(userId);
+    if (!agentProgress({ vipNetworkCount }).eligible) {
+      throw new Error(`You need at least ${AGENT_MIN_VIP_NETWORK} VIP players in your network to request agent status`);
+    }
     const { error } = await this.db.from("pa_profiles").update({ agent_request: "pending" }).eq("id", userId);
     if (error) dbError(error);
     return (await this.profile(userId))!;
@@ -821,11 +846,16 @@ export class SupabaseRepository implements Repository {
   async recalculateMonthlyRakebackTiers(): Promise<RakebackTierChange[]> {
     const all = await this.allProfiles();
     const ts = new Date().toISOString();
-    // Idempotency guard: a retried/duplicate cron delivery in the same
-    // calendar month must not re-run this — it would reset the hours
-    // baseline twice and silently zero out agents' qualifying VIP counts.
-    const currentMonthKey = ts.slice(0, 7);
-    if (all.some((u) => u.role === "agent" && u.rakebackTierAsOf?.slice(0, 7) === currentMonthKey)) {
+    // Idempotency guard: a retried/duplicate cron delivery on the same day
+    // must not re-run this — it would reset the hours baseline twice and
+    // silently zero out agents' qualifying VIP counts. Day precision (not
+    // month) is deliberate: decideAgentRequest also stamps rakebackTierAsOf
+    // when granting a brand-new agent's provisional rate, so a month-wide
+    // check would treat "someone was approved this month" as "the monthly
+    // cron already ran this month" and silently suppress the real run for
+    // every other agent — day precision only blocks a same-day retry.
+    const todayKey = ts.slice(0, 10);
+    if (all.some((u) => u.role === "agent" && u.rakebackTierAsOf?.slice(0, 10) === todayKey)) {
       return [];
     }
     const qualifies = (n: NetworkNode): boolean => {

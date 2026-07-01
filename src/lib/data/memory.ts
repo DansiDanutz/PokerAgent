@@ -34,6 +34,8 @@ import {
   isRakebackEligible,
   canEarnReferrals,
   memberStatus,
+  agentProgress,
+  AGENT_MIN_VIP_NETWORK,
   rakebackRateForTier,
   REFERRAL_RAKEBACK_TIERS,
   AGENT_RAKEBACK_TIERS,
@@ -41,6 +43,7 @@ import {
 } from "@/lib/levels";
 import { flattenNetwork, flattenOwnBusiness } from "@/lib/network";
 import { isDormant } from "@/lib/activity";
+import { formatMoney } from "@/lib/format";
 import { SEED_NOTIFICATIONS, SEED_PASSWORD_HASH, SEED_TRANSACTIONS, SEED_USERS } from "./seed";
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
@@ -400,6 +403,12 @@ export class MemoryRepository implements Repository {
     const player = this.users.get(playerId);
     if (!player) throw new Error("Player not found");
     if (creditLimit < 0) throw new Error("Credit limit cannot be negative");
+    // The DB enforces `balance >= -credit_limit` on the Supabase driver;
+    // check it here too so lowering a limit below what the player currently
+    // owes fails with a clear message instead of corrupting the invariant.
+    if (player.balance < -creditLimit) {
+      throw new Error(`${player.fullName} currently owes ${formatMoney(-player.balance, player.currency)} — you can't set the limit below that`);
+    }
     const isAdmin = actor.role === "admin";
     if (!isAdmin) {
       // Agents may only set limits on their DIRECT players.
@@ -430,6 +439,13 @@ export class MemoryRepository implements Repository {
     const user = this.users.get(userId);
     if (!user) throw new Error("User not found");
     if (user.role !== "player") throw new Error("Only players can request agent status");
+    // Mirrors the dashboard's "Path to Agent" gate (agentProgress) — without
+    // this, any player could bypass the UI and request agent status with 0
+    // qualifying VIP referrals.
+    const { vipNetworkCount } = await this.getNetworkSummary(userId);
+    if (!agentProgress({ vipNetworkCount }).eligible) {
+      throw new Error(`You need at least ${AGENT_MIN_VIP_NETWORK} VIP players in your network to request agent status`);
+    }
     user.agentRequest = "pending";
     return clone(user);
   }
@@ -583,14 +599,17 @@ export class MemoryRepository implements Repository {
   ): Promise<Transaction> {
     const tx = this.transactions.find((t) => t.id === id);
     if (!tx) throw new Error("Transaction not found");
-    const wasPending = tx.status === "pending";
-    tx.status = status;
+    // Guard the status transition itself, matching pa_approve_transaction's
+    // `WHERE status = 'pending'` on the Supabase driver — without this, a
+    // second decision on an already-decided transaction silently overwrites
+    // its status (e.g. flipping a completed/credited deposit to "rejected")
+    // while the balance impact from the first decision stands uncorrected.
+    if (tx.status !== "pending") throw new Error("Request already decided");
+    tx.status = status === "approved" ? "completed" : status;
     tx.processedBy = processedBy;
-    // Apply balance impact when a pending cash movement is approved.
-    if (wasPending && (status === "approved" || status === "completed")) {
+    if (status === "approved" || status === "completed") {
       const user = this.users.get(tx.userId);
       if (user) user.balance += tx.amount;
-      if (status === "approved") tx.status = "completed";
     }
     return clone(tx);
   }
@@ -698,12 +717,17 @@ export class MemoryRepository implements Repository {
   // --- monthly rakeback tier recalculation ----------------------------------
   async recalculateMonthlyRakebackTiers(): Promise<RakebackTierChange[]> {
     const ts = this.now();
-    // Idempotency guard: a retried/duplicate cron delivery in the same
-    // calendar month must not re-run this — it would reset the hours
-    // baseline twice and silently zero out agents' qualifying VIP counts.
-    const currentMonthKey = ts.slice(0, 7);
+    // Idempotency guard: a retried/duplicate cron delivery on the same day
+    // must not re-run this — it would reset the hours baseline twice and
+    // silently zero out agents' qualifying VIP counts. Day precision (not
+    // month) is deliberate: decideAgentRequest also stamps rakebackTierAsOf
+    // when granting a brand-new agent's provisional rate, so a month-wide
+    // check would treat "someone was approved this month" as "the monthly
+    // cron already ran this month" and silently suppress the real run for
+    // every other agent — day precision only blocks a same-day retry.
+    const todayKey = ts.slice(0, 10);
     const agents = [...this.users.values()].filter((u) => u.role === "agent");
-    if (agents.some((a) => a.rakebackTierAsOf?.slice(0, 7) === currentMonthKey)) {
+    if (agents.some((a) => a.rakebackTierAsOf?.slice(0, 10) === todayKey)) {
       return [];
     }
     const qualifies = (n: NetworkNode): boolean => {

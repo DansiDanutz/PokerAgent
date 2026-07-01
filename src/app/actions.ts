@@ -158,12 +158,17 @@ export async function changePassword(_prev: FormState, formData: FormData): Prom
       newPassword: formData.get("newPassword"),
     });
     if (!parsed.success) return { error: parsed.error.issues[0].message };
+    // Looser than login's threshold on purpose: this action is already
+    // gated by a valid session (getCurrentUser above), so the credential-
+    // stuffing threat model login/register defend against doesn't apply
+    // here — a few mistyped-current-password retries by a legitimate user
+    // shouldn't lock them out of fixing their own typo.
     const rateLimitKey = `changePassword:${user.id}`;
     assertNotLockedOut(rateLimitKey);
     const repo = getRepository();
     const cred = await repo.findAuthByEmail(user.email);
     if (!cred || !verifyPassword(parsed.data.currentPassword, cred.passwordHash)) {
-      recordFailedAttempt(rateLimitKey);
+      recordFailedAttempt(rateLimitKey, { windowMs: 15 * 60 * 1000, maxAttempts: 10, lockoutMs: 2 * 60 * 1000 });
       return { error: "Current password is incorrect" };
     }
     clearFailedAttempts(rateLimitKey);
@@ -394,7 +399,29 @@ async function requireAdmin() {
 
 export type ImportResult = { created?: number; errors?: string[]; error?: string };
 
-/** Parse pasted CSV (username,full_name,email,role,upline_code,clubgg_id,balance) and create members. */
+/**
+ * Column names this importer recognizes, mapped to the field it fills.
+ * Covers both the minimal paste format (username,full_name,email,upline_code,
+ * clubgg_id,balance) and RosterTools' "Export CSV" reconciliation format
+ * (which has more columns — role,kyc_status,status,rake_usd — in a different
+ * order). Unrecognized columns (role, kyc_status, status, rake_usd) are
+ * ignored rather than silently misread — imported members are always
+ * players regardless, and the rest is admin-only reporting data.
+ */
+const ROSTER_COLUMN_ALIASES: Record<string, "username" | "fullName" | "email" | "uplineCode" | "clubggId" | "balance"> = {
+  username: "username",
+  full_name: "fullName",
+  fullname: "fullName",
+  email: "email",
+  upline_code: "uplineCode",
+  upline: "uplineCode",
+  clubgg_id: "clubggId",
+  clubggid: "clubggId",
+  balance: "balance",
+  balance_usd: "balance",
+};
+
+/** Parse pasted CSV and create members. See ROSTER_COLUMN_ALIASES for the recognized header names. */
 export async function importRoster(_prev: ImportResult, formData: FormData): Promise<ImportResult> {
   const admin = await requireAdmin();
   const repo = getRepository();
@@ -405,11 +432,39 @@ export async function importRoster(_prev: ImportResult, formData: FormData): Pro
   let created = 0;
   const errors: string[] = [];
 
-  for (let i = 0; i < lines.length; i++) {
+  // If the first row is a recognized header, map columns by name (handles
+  // both the minimal import format and the richer "Export CSV" format, in
+  // any column order). Otherwise fall back to the documented fixed-position
+  // format for headerless pastes.
+  const headerCells = lines[0]?.split(",").map((c) => c.trim().toLowerCase()) ?? [];
+  const hasHeader = headerCells[0] === "username";
+  const columnIndex: Partial<Record<"username" | "fullName" | "email" | "uplineCode" | "clubggId" | "balance", number>> = {};
+  if (hasHeader) {
+    headerCells.forEach((h, idx) => {
+      const field = ROSTER_COLUMN_ALIASES[h];
+      if (field && !(field in columnIndex)) columnIndex[field] = idx;
+    });
+  }
+
+  for (let i = hasHeader ? 1 : 0; i < lines.length; i++) {
     const cells = lines[i].split(",").map((c) => c.trim());
-    if (i === 0 && cells[0].toLowerCase() === "username") continue; // skip header
-    // All imported members are players (agent status is request → approval).
-    const [username, fullName, email, uplineCode, clubggId, balance] = cells;
+    let username: string | undefined;
+    let fullName: string | undefined;
+    let email: string | undefined;
+    let uplineCode: string | undefined;
+    let clubggId: string | undefined;
+    let balance: string | undefined;
+    if (hasHeader) {
+      username = columnIndex.username !== undefined ? cells[columnIndex.username] : undefined;
+      fullName = columnIndex.fullName !== undefined ? cells[columnIndex.fullName] : undefined;
+      email = columnIndex.email !== undefined ? cells[columnIndex.email] : undefined;
+      uplineCode = columnIndex.uplineCode !== undefined ? cells[columnIndex.uplineCode] : undefined;
+      clubggId = columnIndex.clubggId !== undefined ? cells[columnIndex.clubggId] : undefined;
+      balance = columnIndex.balance !== undefined ? cells[columnIndex.balance] : undefined;
+    } else {
+      // All imported members are players (agent status is request → approval).
+      [username, fullName, email, uplineCode, clubggId, balance] = cells;
+    }
     if (!username) continue;
     try {
       await repo.createMember(admin.id, {

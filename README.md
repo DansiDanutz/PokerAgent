@@ -57,8 +57,12 @@ npm run dev          # http://localhost:3000
 ```
 
 The app runs **out of the box** with an in-memory, seeded data source — no
-database required. On the login screen, use the one-click **Player / Agent / Admin**
-demo logins to explore each perspective.
+database required. On the login screen, use the one-click **Player / Agent**
+demo logins to explore each perspective. There's no one-click admin demo —
+the seeded admin account (`semebitcoin@gmail.com`) gets a random password
+printed to the server console on boot (`[data] In-memory driver: generated
+admin password for ...`), by design, so a real credential is never bundled
+into client JS or checked into source control.
 
 ### Scripts
 
