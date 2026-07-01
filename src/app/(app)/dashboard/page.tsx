@@ -6,18 +6,19 @@ import {
   SendHorizontal,
   Wallet as WalletIcon,
   Network as NetworkIcon,
-  Users as UsersIcon,
   Calculator as CalcIcon,
   User as UserIcon,
   Bell,
   Shield,
   Megaphone,
   Target,
+  Briefcase,
 } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getRepository } from "@/lib/data";
 import { Card, Badge, ProgressBar } from "@/components/ui";
 import { DashboardCard, type DashboardCardProps } from "@/components/dashboard/DashboardCard";
+import { ConsoleCard, type ConsoleCardProps } from "@/components/dashboard/ConsoleCard";
 import { PathToAgentInfo } from "@/components/dashboard/PathToAgentInfo";
 import { RakebackInfo } from "@/components/dashboard/RakebackInfo";
 import { LevelBadge } from "@/components/dashboard/LevelBadge";
@@ -62,6 +63,55 @@ export default async function DashboardPage() {
   const next = nextLevel(myInputs);
   const progress = agentProgress({ vipNetworkCount });
   const nextTier = nextRakebackTier(REFERRAL_RAKEBACK_TIERS, vipNetworkCount);
+
+  // Agent Console tier — the console every account can see. Its state is what
+  // makes the role model legible: players see it locked with live progress (or
+  // ready-to-request once earned), agents/admins see it open.
+  type AgentConsole = Omit<ConsoleCardProps, "title" | "icon" | "tone">;
+  const agentConsole: AgentConsole =
+    user.role === "agent"
+      ? {
+          state: "open",
+          href: "/members",
+          description: "Your members workspace",
+          metric: formatNumber(totalNetwork),
+          metricLabel: "members to manage",
+        }
+      : user.role === "admin"
+        ? {
+            state: "open",
+            href: "/members",
+            description: "Inspect the agent workspace",
+            metric: formatNumber(totalNetwork),
+            metricLabel: "members in the club",
+          }
+        : user.agentRequest === "pending"
+          ? {
+              state: "ready",
+              description: "Your request is with the admin for review.",
+              cta: (
+                <span className="inline-block rounded-full bg-[var(--color-warning)]/15 px-3 py-1 text-xs font-medium text-[var(--color-warning)]">
+                  Request pending
+                </span>
+              ),
+            }
+          : progress.eligible
+            ? {
+                state: "ready",
+                description: "You've met the requirement — request agent status to unlock the console.",
+                cta: (
+                  <form action={requestAgentStatus}>
+                    <button className="rounded-full bg-emerald-glow/15 px-3 py-1.5 text-xs font-medium text-emerald-soft hover:bg-emerald-glow/25">
+                      {user.agentRequest === "rejected" ? "Request again" : "Request agent status 🎉"}
+                    </button>
+                  </form>
+                ),
+              }
+            : {
+                state: "locked",
+                requirement: `Grow ${progress.target} VIP players in your network to unlock.`,
+                progress: { current: progress.current, target: progress.target, unit: "VIP players" },
+              };
 
   // Role-aware big cards. For non-players, "Network" highlights direct
   // referrals (who they personally brought in) while "Manage Members" below
@@ -127,17 +177,6 @@ export default async function DashboardPage() {
       badge: unread > 0 ? String(unread) : undefined,
     },
   ];
-  if (user.role !== "player") {
-    cards.splice(1, 0, {
-      href: "/members",
-      title: "Manage Members",
-      description: "Chips, hours, approvals",
-      icon: UsersIcon,
-      metric: formatNumber(totalNetwork),
-      metricLabel: "members to manage",
-      tone: "gold",
-    });
-  }
   if (user.role !== "admin") {
     cards.push({
       href: "/promote",
@@ -147,17 +186,6 @@ export default async function DashboardPage() {
       metric: "Share & invite",
       metricLabel: "links, posts, QR & banner",
       tone: "emerald",
-    });
-  }
-  if (user.role === "admin") {
-    cards.push({
-      href: "/admin",
-      title: "Admin Console",
-      description: "Approvals & management",
-      icon: Shield,
-      metric: overview ? formatNumber(overview.pendingTransactions) : "0",
-      metricLabel: "pending approvals",
-      tone: "gold",
     });
   }
 
@@ -271,6 +299,37 @@ export default async function DashboardPage() {
         {cards.map((c) => (
           <DashboardCard key={c.href + c.title} {...c} />
         ))}
+      </div>
+
+      {/* Console tiers — layered, additive access. Everyone sees the Agent
+          Console (locked until earned); admins additionally see the Admin
+          Console. This is the visible backbone of the role model: you always
+          see the tier above you and exactly what unlocks it. */}
+      <div>
+        <div className="mb-3 flex items-center gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-400">Consoles</h2>
+          <span className="h-px flex-1 bg-white/5" />
+        </div>
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+          <ConsoleCard
+            title="Agent Console"
+            icon={Briefcase}
+            tone="gold"
+            {...agentConsole}
+          />
+          {user.role === "admin" && (
+            <ConsoleCard
+              title="Admin Console"
+              icon={Shield}
+              tone="emerald"
+              state="open"
+              href="/admin"
+              description="Approvals, KYC, settlements & tools"
+              metric={overview ? formatNumber(overview.pendingTransactions) : "0"}
+              metricLabel="pending approvals"
+            />
+          )}
+        </div>
       </div>
 
       {/* Club + invite */}
