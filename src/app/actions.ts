@@ -164,7 +164,9 @@ export async function transfer(formData: FormData): Promise<void> {
 }
 
 const cashSchema = z.object({
-  type: z.enum(["deposit", "withdrawal"]),
+  // Players self-deposit (admin approves). Withdrawals are now done by paying
+  // back an agent via transfer(), not as an admin-approved cash request.
+  type: z.enum(["deposit"]),
   amount: z.coerce.number().positive("Amount must be greater than zero"),
 });
 
@@ -180,7 +182,7 @@ export async function recordCash(formData: FormData): Promise<void> {
     userId: user.id,
     type: parsed.data.type,
     amount: Math.round(parsed.data.amount * 100),
-    note: parsed.data.type === "deposit" ? "Deposit request" : "Withdrawal request",
+    note: "Deposit request",
   });
   revalidatePath("/wallet");
 }
@@ -257,6 +259,27 @@ export async function requestAgentStatus(): Promise<void> {
   revalidatePath("/dashboard");
 }
 
+const changeUplineSchema = z.object({
+  newReferralCode: z.string().min(1, "Enter the new agent's invite code"),
+});
+
+/** A dormant (1yr+ inactive) user moves themselves to a new agent. */
+export async function changeUplineAction(_prev: FormState, formData: FormData): Promise<FormState> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) throw new Error("Not signed in");
+    const parsed = changeUplineSchema.safeParse({ newReferralCode: formData.get("newReferralCode") });
+    if (!parsed.success) return { error: parsed.error.issues[0].message };
+    await getRepository().changeUpline(user.id, parsed.data.newReferralCode);
+    revalidatePath("/profile");
+    revalidatePath("/dashboard");
+    revalidatePath("/members");
+    return { error: undefined };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Could not change agent" };
+  }
+}
+
 /** Admin approves/rejects a pending agent request. */
 export async function decideAgentRequest(userId: string, decision: "approved" | "rejected"): Promise<void> {
   const admin = await requireAdmin();
@@ -271,6 +294,56 @@ export async function decideMemberTransaction(
   const agent = await requireManager();
   await getRepository().decideMemberTransaction(agent.id, txId, decision);
   revalidatePath("/members");
+}
+
+const creditLimitSchema = z.object({
+  playerId: z.string().min(1),
+  creditLimit: z.coerce.number().min(0, "Credit limit cannot be negative"),
+});
+
+/** Agent (or admin) sets a per-player credit limit. */
+export async function setPlayerCreditLimit(formData: FormData): Promise<void> {
+  const actor = await requireManager();
+  const parsed = creditLimitSchema.safeParse({
+    playerId: formData.get("playerId"),
+    creditLimit: formData.get("creditLimit"),
+  });
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  await getRepository().setPlayerCreditLimit(
+    actor.id,
+    parsed.data.playerId,
+    Math.round(parsed.data.creditLimit * 100),
+  );
+  revalidatePath("/members");
+}
+
+const creditRequestSchema = z.object({
+  amount: z.coerce.number().positive("Amount must be greater than zero"),
+  note: z.string().optional(),
+});
+
+/** An agent asks the admin for a credit line (recorded in settlement). */
+export async function requestAgentCredit(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user || user.role !== "agent") throw new Error("Agents only");
+  const parsed = creditRequestSchema.safeParse({
+    amount: formData.get("amount"),
+    note: formData.get("note") || undefined,
+  });
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  await getRepository().requestAgentCredit(
+    user.id,
+    Math.round(parsed.data.amount * 100),
+    parsed.data.note,
+  );
+  revalidatePath("/members");
+}
+
+/** Admin approves/rejects a pending agent credit request. */
+export async function decideAgentCredit(txId: string, decision: "approved" | "rejected"): Promise<void> {
+  const admin = await requireAdmin();
+  await getRepository().decideAgentCredit(admin.id, txId, decision);
+  revalidatePath("/admin");
 }
 
 // --- Admin controls --------------------------------------------------------

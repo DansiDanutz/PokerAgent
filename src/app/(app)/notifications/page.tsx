@@ -23,7 +23,7 @@ export default async function NotificationsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-ink-100">Notifications</h1>
-        {unread > 0 && <Badge tone="emerald">{unread} unread</Badge>}
+        {unread > 0 && <Badge tone="ember">{unread} unread</Badge>}
       </div>
 
       <Card>
@@ -43,7 +43,7 @@ export default async function NotificationsPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-medium text-ink-100">{n.title}</p>
-                      {!n.read && <span className="h-2 w-2 rounded-full bg-emerald-glow" />}
+                      {!n.read && <span className="h-2 w-2 shrink-0 rounded-full bg-ember-400" />}
                     </div>
                     <p className="text-sm text-ink-400">{n.body}</p>
                     <p className="mt-0.5 text-xs text-ink-500">{formatDate(n.createdAt)}</p>

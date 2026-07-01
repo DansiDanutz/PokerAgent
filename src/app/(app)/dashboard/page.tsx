@@ -102,9 +102,9 @@ export default async function DashboardPage() {
       title: "Odds Calculator",
       description: "Equity, outs & pot odds",
       icon: CalcIcon,
-      metric: "Hold'em · Omaha",
-      metricLabel: "run the odds for any hand",
-      tone: "neutral",
+      metric: "Run the odds",
+      metricLabel: "Hold'em · Omaha equity, outs & pot odds",
+      tone: "ember",
     },
     {
       href: "/profile",
@@ -125,7 +125,7 @@ export default async function DashboardPage() {
       icon: Bell,
       metric: unread > 0 ? `${unread} new` : "All read",
       metricLabel: "referrals, money & security",
-      tone: "neutral",
+      tone: unread > 0 ? "ember" : "neutral",
       badge: unread > 0 ? String(unread) : undefined,
     },
   ];
@@ -186,8 +186,8 @@ export default async function DashboardPage() {
 
       {/* Balance hero */}
       <Card glow="gold">
-        <p className="text-xs uppercase tracking-wide text-ink-400">Your balance</p>
-        <p className="mt-1 text-4xl font-semibold gold-text">{formatMoney(user.balance, user.currency)}</p>
+        <p className="text-xs font-medium uppercase tracking-wider text-ink-400">Your balance</p>
+        <p className="mt-1 font-display text-4xl font-semibold tabular-nums gold-text">{formatMoney(user.balance, user.currency)}</p>
         <div className="mt-5 grid grid-cols-3 gap-3">
           <QuickAction href="/wallet" icon={<ArrowDownToLine size={18} />} label="Deposit" />
           <QuickAction href="/wallet" icon={<ArrowUpFromLine size={18} />} label="Withdraw" />

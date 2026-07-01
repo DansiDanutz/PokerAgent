@@ -41,7 +41,15 @@ const NAV: NavItem[] = [
   { href: "/profile", label: "Profile", icon: UserIcon, roles: ["player", "agent", "admin"] },
 ];
 
-export function AppShell({ user, children }: { user: User; children: ReactNode }) {
+export function AppShell({
+  user,
+  unreadCount = 0,
+  children,
+}: {
+  user: User;
+  unreadCount?: number;
+  children: ReactNode;
+}) {
   const pathname = usePathname();
   const items = NAV.filter((i) => i.roles.includes(user.role));
 
@@ -52,7 +60,12 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
         <Brand size="sm" />
         <nav className="mt-8 flex flex-1 flex-col gap-1">
           {items.map((item) => (
-            <NavLink key={item.href} item={item} active={pathname === item.href} />
+            <NavLink
+              key={item.href}
+              item={item}
+              active={pathname === item.href}
+              badge={item.href === "/notifications" && unreadCount > 0 ? unreadCount : undefined}
+            />
           ))}
         </nav>
         <RoleCard user={user} />
@@ -61,7 +74,7 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
 
       {/* Main column */}
       <div className="flex min-w-0 flex-1 flex-col pb-24 lg:pb-0">
-        <TopBar user={user} />
+        <TopBar user={user} unreadCount={unreadCount} />
         <main className="flex-1 px-4 py-5 sm:px-6">{children}</main>
       </div>
 
@@ -70,6 +83,7 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
         {items.slice(0, 5).map((item) => {
           const Icon = item.icon;
           const active = pathname === item.href;
+          const showDot = item.href === "/notifications" && unreadCount > 0;
           return (
             <Link
               key={item.href}
@@ -79,7 +93,12 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
                 active ? "text-emerald-soft" : "text-ink-500",
               )}
             >
-              <Icon size={20} strokeWidth={active ? 2.4 : 1.8} />
+              <span className="relative">
+                <Icon size={20} strokeWidth={active ? 2.4 : 1.8} />
+                {showDot && (
+                  <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-ember-400 ring-2 ring-felt-900" />
+                )}
+              </span>
               <span className="truncate">{item.label}</span>
             </Link>
           );
@@ -89,7 +108,7 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
   );
 }
 
-function NavLink({ item, active }: { item: NavItem; active: boolean }) {
+function NavLink({ item, active, badge }: { item: NavItem; active: boolean; badge?: number }) {
   const Icon = item.icon;
   return (
     <Link
@@ -102,7 +121,12 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
       )}
     >
       <Icon size={18} />
-      {item.label}
+      <span className="flex-1">{item.label}</span>
+      {!!badge && (
+        <span className="rounded-full bg-ember-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-ember-300">
+          {badge}
+        </span>
+      )}
     </Link>
   );
 }
@@ -121,7 +145,7 @@ function RoleCard({ user }: { user: User }) {
   );
 }
 
-function TopBar({ user }: { user: User }) {
+function TopBar({ user, unreadCount }: { user: User; unreadCount: number }) {
   // An admin account doesn't hold poker chips, so a balance pill is noise —
   // show their role instead, consistently on desktop and mobile.
   const isAdmin = user.role === "admin";
@@ -146,9 +170,14 @@ function TopBar({ user }: { user: User }) {
         </div>
         <Link
           href="/notifications"
-          className="grid h-9 w-9 place-items-center rounded-full bg-white/5 text-ink-300 ring-1 ring-inset ring-white/10 hover:text-emerald-soft"
+          className="relative grid h-9 w-9 place-items-center rounded-full bg-white/5 text-ink-300 ring-1 ring-inset ring-white/10 hover:text-emerald-soft"
         >
           <Bell size={18} />
+          {unreadCount > 0 && (
+            <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-ember-500 px-1 text-[9px] font-bold text-felt-950 ring-2 ring-felt-950">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
         </Link>
         <Link href="/profile" aria-label="Profile">
           <Avatar name={user.fullName} src={user.avatarUrl} size={36} ring />

@@ -27,10 +27,13 @@ import type {
   CreditMemberInput,
   RecordCashInput,
   Repository,
+  SweepResult,
 } from "./repository";
 import { AGENT_COMMISSION_RATE } from "./memory";
 import { buildNewMember } from "./newMember";
 import { ADMIN_EMAIL, isAdminEmail } from "@/lib/governance";
+import { isRakebackEligible } from "@/lib/levels";
+import { isDormant } from "@/lib/activity";
 
 type ProfileRow = {
   id: string;
@@ -49,6 +52,7 @@ type ProfileRow = {
   clubgg_nickname: string | null;
   agent_request: "none" | "pending" | "rejected" | null;
   balance: number;
+  credit_limit: number | null;
   currency: string;
   hands_played: number;
   net_profit: number;
@@ -101,6 +105,7 @@ function toUser(r: ProfileRow): User {
     clubggNickname: r.clubgg_nickname ?? undefined,
     agentRequest: r.agent_request ?? "none",
     balance: r.balance,
+    creditLimit: r.credit_limit ?? 0,
     currency: r.currency,
     createdAt: r.created_at,
     lastActiveAt: r.last_active_at ?? undefined,
@@ -260,13 +265,24 @@ export class SupabaseRepository implements Repository {
       for (const c of all.filter((u) => u.uplineAgentId === id)) { flat.push(c); walk(c.id); }
     };
     if (root) walk(root.id);
-    const networkRake = flat.reduce((s, u) => s + u.stats.rakeGenerated, 0);
+    // L0 (not yet KYC-verified) players can play, but their rake doesn't
+    // count toward the agent's commission until they reach L1.
+    const rakebackEligible = flat.filter((u) =>
+      isRakebackEligible({
+        kycVerified: u.kycStatus === "verified",
+        tableHours: u.stats.tableHours,
+        directReferrals: all.filter((x) => x.uplineAgentId === u.id).length,
+      }),
+    );
+    const networkRake = rakebackEligible.reduce((s, u) => s + u.stats.rakeGenerated, 0);
+    const frozen = (root?.balance ?? 0) < 0;
     return {
       directReferrals: root ? all.filter((u) => u.uplineAgentId === root.id).length : 0,
       totalNetwork: flat.length,
       activePlayers: flat.filter((u) => u.stats.handsPlayed > 0).length,
       networkRake,
-      commissionEarned: Math.round(networkRake * AGENT_COMMISSION_RATE),
+      commissionEarned: frozen ? 0 : Math.round(networkRake * AGENT_COMMISSION_RATE),
+      frozen,
       currency: root?.currency ?? "USD",
     };
   }
@@ -294,6 +310,53 @@ export class SupabaseRepository implements Repository {
     return false;
   }
 
+  async changeUpline(userId: string, newReferralCode: string): Promise<User> {
+    const user = await this.profile(userId);
+    if (!user) throw new Error("User not found");
+    if (!user.uplineAgentId) throw new Error("You don't have an agent to change");
+    if (!isDormant(user.lastActiveAt, new Date(), user.createdAt)) {
+      throw new Error("You can only change agents after 1 year of inactivity");
+    }
+    const newAgent = await this.getUserByReferralCode(newReferralCode);
+    if (!newAgent) throw new Error("No user found for that referral code");
+    if (newAgent.id === user.id) throw new Error("You cannot refer yourself");
+    if (newAgent.id === user.uplineAgentId) throw new Error("You are already with that agent");
+    if (await this.isUpline(user.id, newAgent.id)) {
+      throw new Error("That would create a loop in your network");
+    }
+
+    const oldAgent = await this.profile(user.uplineAgentId);
+    const ts = new Date().toISOString();
+    const { error } = await this.db
+      .from("pa_profiles")
+      .update({ upline_agent_id: newAgent.id, last_active_at: ts })
+      .eq("id", user.id);
+    if (error) throw new Error(error.message);
+
+    await this.addNotification({
+      userId: user.id,
+      kind: "system",
+      title: "Agent changed",
+      body: `You're now with ${newAgent.fullName} after a year of inactivity with your previous agent.`,
+    });
+    if (oldAgent) {
+      await this.addNotification({
+        userId: oldAgent.id,
+        kind: "referral",
+        title: "A dormant member left your network",
+        body: `${user.fullName} switched to a new agent after 1 year of inactivity.`,
+      });
+    }
+    await this.addNotification({
+      userId: newAgent.id,
+      kind: "referral",
+      title: "New member joined your network",
+      body: `${user.fullName} joined your network after leaving a dormant agent relationship.`,
+    });
+
+    return (await this.profile(user.id))!;
+  }
+
   async listTransactions(userId: string): Promise<Transaction[]> {
     const { data, error } = await this.db
       .from("pa_transactions").select("*").eq("user_id", userId).order("created_at", { ascending: false });
@@ -316,17 +379,35 @@ export class SupabaseRepository implements Repository {
     const user = await this.profile(input.userId);
     if (!user) throw new Error("User not found");
     if (input.amount <= 0) throw new Error("Amount must be positive");
-    const signed = input.type === "withdrawal" ? -input.amount : input.amount;
-    const status: Transaction["status"] =
-      input.type === "deposit" || input.type === "withdrawal" ? "pending" : "completed";
+    const status: Transaction["status"] = input.type === "deposit" ? "pending" : "completed";
     const tx: Transaction = {
-      id: this.newId("t"), userId: input.userId, type: input.type, amount: signed,
+      id: this.newId("t"), userId: input.userId, type: input.type, amount: input.amount,
       currency: user.currency, status, note: input.note, createdAt: new Date().toISOString(),
       processedBy: input.processedBy,
     };
     await this.insertTx(tx);
-    if (status === "completed") await this.setBalance(user.id, user.balance + signed);
+    if (status === "completed") await this.setBalance(user.id, user.balance + input.amount);
     return tx;
+  }
+
+  /** Gate for non-admin money movement between two existing users. */
+  private async assertTransferAllowed(from: User, to: User): Promise<void> {
+    if (from.role === "admin") throw new Error("Admins use Adjust balance, not transfer");
+    if (from.role === "agent" && to.role === "player") {
+      if (!(await this.isUpline(from.id, to.id))) {
+        throw new Error("You can only send chips to players in your own network");
+      }
+      return;
+    }
+    if (from.role === "agent" && to.role === "agent") return;
+    if (from.role === "player" && to.role === "agent") return;
+    if (from.role === "player" && to.role === "player") {
+      if (!from.uplineAgentId || from.uplineAgentId !== to.uplineAgentId) {
+        throw new Error("Players can only transfer to other players under the same agent");
+      }
+      return;
+    }
+    throw new Error("That transfer is not allowed");
   }
 
   async transfer(input: CreateTransferInput): Promise<{ out: Transaction; in: Transaction }> {
@@ -335,6 +416,7 @@ export class SupabaseRepository implements Repository {
     const to = await this.getUserByReferralCode(input.toReferralCode);
     if (!to) throw new Error("No user found for that referral code");
     if (to.id === from.id) throw new Error("Cannot transfer to yourself");
+    await this.assertTransferAllowed(from, to);
     if (input.amount <= 0) throw new Error("Amount must be positive");
     if (from.balance < input.amount) throw new Error("Insufficient balance");
     const ts = new Date().toISOString();
@@ -380,11 +462,69 @@ export class SupabaseRepository implements Repository {
     }
   }
 
+  private async isMemberRakebackEligible(member: User): Promise<boolean> {
+    const all = await this.allProfiles();
+    return isRakebackEligible({
+      kycVerified: member.kycStatus === "verified",
+      tableHours: member.stats.tableHours,
+      directReferrals: all.filter((u) => u.uplineAgentId === member.id).length,
+    });
+  }
+
   async creditMember(input: CreditMemberInput): Promise<Transaction> {
     await this.assertUpline(input.agentId, input.memberId);
-    return this.recordCash({
-      userId: input.memberId, type: input.type, amount: input.amount, note: input.note, processedBy: input.agentId,
-    });
+    const agent = await this.profile(input.agentId);
+    if (!agent) throw new Error("Agent not found");
+    const member = await this.profile(input.memberId);
+    if (!member) throw new Error("Member not found");
+    if (input.amount <= 0) throw new Error("Amount must be positive");
+    if (input.type === "rake_rebate" && !(await this.isMemberRakebackEligible(member))) {
+      throw new Error("This player must verify KYC (Level 1) before they can receive rakeback");
+    }
+    const ts = new Date().toISOString();
+    if (agent.role !== "admin") {
+      if (agent.balance < input.amount) {
+        throw new Error("Insufficient balance — request credit from admin first");
+      }
+      await this.insertTx({
+        id: this.newId("t"), userId: agent.id, counterpartyId: member.id, type: "transfer_out",
+        amount: -input.amount, currency: agent.currency, status: "completed",
+        note: input.note ?? `Credit to ${member.username}`, createdAt: ts, processedBy: agent.id,
+      });
+      await this.setBalance(agent.id, agent.balance - input.amount);
+    }
+    const credit: Transaction = {
+      id: this.newId("t"), userId: member.id,
+      counterpartyId: agent.role !== "admin" ? agent.id : undefined,
+      type: input.type, amount: input.amount, currency: member.currency, status: "completed",
+      note: input.note, createdAt: ts, processedBy: agent.id,
+    };
+    await this.insertTx(credit);
+    await this.setBalance(member.id, member.balance + input.amount);
+    return credit;
+  }
+
+  async setPlayerCreditLimit(actorId: string, playerId: string, creditLimit: number): Promise<User> {
+    const actor = await this.profile(actorId);
+    if (!actor) throw new Error("User not found");
+    const player = await this.profile(playerId);
+    if (!player) throw new Error("Player not found");
+    if (creditLimit < 0) throw new Error("Credit limit cannot be negative");
+    if (actor.role !== "admin") {
+      if (player.uplineAgentId !== actorId) {
+        throw new Error("You can only set credit limits for your own players");
+      }
+      const all = await this.allProfiles();
+      const others = all
+        .filter((u) => u.uplineAgentId === actorId && u.id !== playerId)
+        .reduce((s, u) => s + (u.creditLimit ?? 0), 0);
+      if (others + creditLimit > actor.balance) {
+        throw new Error("Total credit limits would exceed your balance");
+      }
+    }
+    const { error } = await this.db.from("pa_profiles").update({ credit_limit: creditLimit }).eq("id", playerId);
+    if (error) throw new Error(error.message);
+    return (await this.profile(playerId))!;
   }
 
   async setMemberTableHours(agentId: string, memberId: string, hours: number): Promise<User> {
@@ -438,6 +578,85 @@ export class SupabaseRepository implements Repository {
     if (error) throw new Error(error.message);
   }
 
+  async addNotification(input: Omit<Notification, "id" | "read" | "createdAt">): Promise<Notification> {
+    const n: Notification = { ...input, id: this.newId("n"), read: false, createdAt: new Date().toISOString() };
+    const { error } = await this.db.from("pa_notifications").insert({
+      id: n.id, user_id: n.userId, kind: n.kind, title: n.title, body: n.body, read: false, created_at: n.createdAt,
+    });
+    if (error) throw new Error(error.message);
+    return n;
+  }
+
+  // --- agent credit / settlement -------------------------------------------
+  async requestAgentCredit(agentId: string, amount: number, note?: string): Promise<Transaction> {
+    const agent = await this.profile(agentId);
+    if (!agent) throw new Error("User not found");
+    if (agent.role !== "agent") throw new Error("Only agents can request credit");
+    if (amount <= 0) throw new Error("Amount must be positive");
+    if (agent.balance < 0) throw new Error("Your balance is negative — settle it before requesting credit");
+    const tx: Transaction = {
+      id: this.newId("t"), userId: agentId, type: "agent_credit", amount,
+      currency: agent.currency, status: "pending", note, createdAt: new Date().toISOString(),
+    };
+    await this.insertTx(tx);
+    return tx;
+  }
+
+  async decideAgentCredit(adminId: string, txId: string, decision: "approved" | "rejected"): Promise<Transaction> {
+    await this.assertAdmin(adminId);
+    const { data, error } = await this.db.from("pa_transactions").select("*").eq("id", txId).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) throw new Error("Transaction not found");
+    const tx = toTx(data as TxRow);
+    if (tx.type !== "agent_credit") throw new Error("Not a credit request");
+    if (tx.status !== "pending") throw new Error("Request already decided");
+    return this.setTransactionStatus(txId, decision, adminId);
+  }
+
+  async listAgentCreditRequests(): Promise<Transaction[]> {
+    const { data, error } = await this.db
+      .from("pa_transactions").select("*").eq("type", "agent_credit").eq("status", "pending")
+      .order("created_at", { ascending: false });
+    if (error) throw new Error(error.message);
+    return (data as TxRow[]).map(toTx);
+  }
+
+  async listSettlements(): Promise<Transaction[]> {
+    const { data, error } = await this.db
+      .from("pa_transactions").select("*").eq("type", "agent_credit").order("created_at", { ascending: false });
+    if (error) throw new Error(error.message);
+    return (data as TxRow[]).map(toTx);
+  }
+
+  async sweepNegativeBalances(): Promise<SweepResult[]> {
+    const all = await this.allProfiles();
+    const byId = new Map(all.map((u) => [u.id, u]));
+    const results: SweepResult[] = [];
+    const ts = new Date().toISOString();
+    for (const player of all) {
+      if (player.role !== "player" || player.balance >= 0 || !player.uplineAgentId) continue;
+      const agent = byId.get(player.uplineAgentId);
+      if (!agent) continue;
+      const amount = -player.balance;
+      await this.insertTx({
+        id: this.newId("t"), userId: player.id, counterpartyId: agent.id, type: "adjustment",
+        amount, currency: player.currency, status: "completed",
+        note: "Negative balance settled by agent", createdAt: ts, processedBy: agent.id,
+      });
+      await this.setBalance(player.id, 0);
+      await this.insertTx({
+        id: this.newId("t"), userId: agent.id, counterpartyId: player.id, type: "adjustment",
+        amount: -amount, currency: agent.currency, status: "completed",
+        note: `Absorbed ${player.username}'s negative balance`, createdAt: ts, processedBy: agent.id,
+      });
+      const agentNewBalance = agent.balance - amount;
+      await this.setBalance(agent.id, agentNewBalance);
+      agent.balance = agentNewBalance; // keep local map in sync for multi-player agents
+      results.push({ playerId: player.id, agentId: agent.id, amount, agentNowNegative: agentNewBalance < 0 });
+    }
+    return results;
+  }
+
   async getAdminOverview(): Promise<AdminOverview> {
     const users = await this.allProfiles();
     const pendingTx = await this.listPendingTransactions();
@@ -455,7 +674,8 @@ export class SupabaseRepository implements Repository {
 
   async listPendingTransactions(): Promise<Transaction[]> {
     const { data, error } = await this.db
-      .from("pa_transactions").select("*").eq("status", "pending").order("created_at", { ascending: false });
+      .from("pa_transactions").select("*").eq("status", "pending").neq("type", "agent_credit")
+      .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
     return (data as TxRow[]).map(toTx);
   }

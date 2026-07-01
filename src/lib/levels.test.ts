@@ -4,6 +4,8 @@ import {
   nextLevel,
   memberStatus,
   agentProgress,
+  isRakebackEligible,
+  canEarnReferrals,
 } from "./levels";
 
 describe("currentLevel / memberStatus", () => {
@@ -43,6 +45,32 @@ describe("currentLevel / memberStatus", () => {
   it("reports the next level to chase", () => {
     expect(nextLevel({ kycVerified: false, tableHours: 0, directReferrals: 0 })?.level).toBe(1);
     expect(nextLevel({ kycVerified: true, tableHours: 4, directReferrals: 0 })?.level).toBe(3);
+  });
+});
+
+describe("isRakebackEligible", () => {
+  it("L0 (unverified) players are not rakeback-eligible", () => {
+    expect(isRakebackEligible({ kycVerified: false, tableHours: 0, directReferrals: 0 })).toBe(false);
+  });
+
+  it("L1+ (KYC verified) players are rakeback-eligible", () => {
+    expect(isRakebackEligible({ kycVerified: true, tableHours: 0, directReferrals: 0 })).toBe(true);
+  });
+
+  it("L2 (VIP) players remain rakeback-eligible", () => {
+    expect(isRakebackEligible({ kycVerified: true, tableHours: 4, directReferrals: 0 })).toBe(true);
+  });
+});
+
+describe("canEarnReferrals", () => {
+  it("L0 and L1 players cannot yet refer for their own commission", () => {
+    expect(canEarnReferrals({ kycVerified: false, tableHours: 0, directReferrals: 0 })).toBe(false);
+    expect(canEarnReferrals({ kycVerified: true, tableHours: 0, directReferrals: 0 })).toBe(false);
+  });
+
+  it("L2 (VIP) and above unlocks referral earning", () => {
+    expect(canEarnReferrals({ kycVerified: true, tableHours: 4, directReferrals: 0 })).toBe(true);
+    expect(canEarnReferrals({ kycVerified: true, tableHours: 10, directReferrals: 3 })).toBe(true);
   });
 });
 

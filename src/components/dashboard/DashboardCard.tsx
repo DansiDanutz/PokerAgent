@@ -11,13 +11,14 @@ export interface DashboardCardProps {
   metric?: string;
   /** Small label under the metric. */
   metricLabel?: string;
-  tone?: "emerald" | "gold" | "neutral";
+  tone?: "emerald" | "gold" | "ember" | "neutral";
   badge?: string;
 }
 
 const toneMap = {
   emerald: { tile: "bg-emerald-glow/15 text-emerald-soft", glow: "hover:emerald-glow" },
   gold: { tile: "bg-gold-500/15 text-gold-300", glow: "hover:gold-ring" },
+  ember: { tile: "bg-ember-500/15 text-ember-300", glow: "hover:ember-glow" },
   neutral: { tile: "bg-white/8 text-ink-200", glow: "" },
 };
 
@@ -41,6 +42,7 @@ export function DashboardCard({
         "hover:-translate-y-0.5 hover:border-white/15",
         tone === "gold" && "hover:gold-ring",
         tone === "emerald" && "hover:emerald-glow",
+        tone === "ember" && "hover:ember-glow",
       )}
     >
       <div className="flex items-start justify-between">
@@ -54,14 +56,19 @@ export function DashboardCard({
 
       <div>
         {metric && (
-          <p className={clsx("text-2xl font-semibold", tone === "gold" ? "gold-text" : "text-ink-100")}>
+          <p
+            className={clsx(
+              "font-display text-2xl font-semibold",
+              tone === "gold" ? "gold-text" : tone === "ember" ? "ember-text" : "text-ink-100",
+            )}
+          >
             {metric}
           </p>
         )}
         <div className="mt-1 flex items-center gap-2">
           <h3 className="text-base font-semibold text-ink-100">{title}</h3>
           {badge && (
-            <span className="rounded-full bg-emerald-glow/15 px-2 py-0.5 text-[10px] font-medium text-emerald-soft">
+            <span className="rounded-full bg-ember-500/15 px-2 py-0.5 text-[10px] font-semibold text-ember-300 ring-1 ring-inset ring-ember-500/30">
               {badge}
             </span>
           )}

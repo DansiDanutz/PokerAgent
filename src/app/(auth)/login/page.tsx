@@ -9,19 +9,19 @@ export default function LoginPage() {
         <Brand size="lg" />
       </div>
 
-      <Card>
-        <h1 className="text-xl font-semibold text-ink-100">Welcome back</h1>
-        <p className="mt-1 text-sm text-ink-400">
+      <Card glow="gold" className="p-6">
+        <h1 className="text-2xl font-semibold text-ink-100">Welcome back</h1>
+        <p className="mt-1.5 text-sm leading-relaxed text-ink-400">
           Sign in to manage your players, network and bankroll.
         </p>
-        <div className="mt-5">
+        <div className="mt-6">
           <LoginForm />
         </div>
       </Card>
 
       <p className="text-center text-sm text-ink-400">
         New here?{" "}
-        <a href="/register" className="font-medium text-emerald-soft hover:underline">
+        <a href="/register" className="font-medium text-emerald-soft underline-offset-4 hover:underline">
           Create your account
         </a>
       </p>

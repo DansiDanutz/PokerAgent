@@ -38,6 +38,13 @@ export interface User {
   agentRequest?: AgentRequestStatus;
   /** Chip/credit balance in minor units (cents) of `currency`. */
   balance: number;
+  /**
+   * For players: how far negative this player's balance may go before their
+   * direct agent must cover it (minor units, >= 0). Set by the agent as a
+   * per-player risk budget; the sum across an agent's players cannot exceed
+   * the agent's own balance.
+   */
+  creditLimit?: number;
   currency: string;
   createdAt: string; // ISO date
   lastActiveAt?: string;
@@ -69,7 +76,9 @@ export type TransactionType =
   | "transfer_in"
   | "transfer_out"
   | "rake_rebate"
-  | "adjustment";
+  | "adjustment"
+  /** Admin-approved credit grant that funds an agent's balance. */
+  | "agent_credit";
 
 export type TransactionStatus = "pending" | "approved" | "rejected" | "completed";
 
@@ -127,6 +136,8 @@ export interface NetworkSummary {
   networkRake: number;
   /** Estimated agent commission earned from the network (minor units). */
   commissionEarned: number;
+  /** True when the agent's own balance is negative — credit & earnings frozen. */
+  frozen: boolean;
   currency: string;
 }
 

@@ -88,10 +88,28 @@ export function memberStatus(input: LevelInputs): MemberStatus {
   return "vip_player";
 }
 
+/**
+ * Rakeback unlocks at L1 (KYC verified). An L0 player can still play, but
+ * neither they nor their upline agent receive rakeback for that play until
+ * KYC clears — this is what an agent needs to chase to start earning.
+ */
+export function isRakebackEligible(input: LevelInputs): boolean {
+  return currentLevel(input).level >= 1;
+}
+
+/**
+ * Referral earning unlocks at L2 (VIP Player) — below that, a player can
+ * still hold and share a referral code, but doesn't yet earn commission
+ * from their own downline the way an L2+ player or agent does.
+ */
+export function canEarnReferrals(input: LevelInputs): boolean {
+  return currentLevel(input).level >= 2;
+}
+
 export const STATUS_LABEL: Record<MemberStatus, string> = {
-  new_player: "New Player",
+  new_player: "New",
   player: "Player",
-  vip_player: "VIP Player",
+  vip_player: "VIP",
 };
 
 // ---- Path to Agent ---------------------------------------------------------

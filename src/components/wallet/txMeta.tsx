@@ -4,6 +4,7 @@ import {
   SendHorizontal,
   Gift,
   Sliders,
+  Banknote,
   type LucideIcon,
 } from "lucide-react";
 import type { TransactionType } from "@/types/domain";
@@ -22,4 +23,5 @@ export const TX_META: Record<TransactionType, TxMeta> = {
   transfer_out: { label: "Transfer out", icon: SendHorizontal, color: "text-gold-300", bg: "bg-gold-500/15" },
   rake_rebate: { label: "Rakeback", icon: Gift, color: "text-gold-300", bg: "bg-gold-500/15" },
   adjustment: { label: "Adjustment", icon: Sliders, color: "text-ink-300", bg: "bg-white/10" },
+  agent_credit: { label: "Admin credit", icon: Banknote, color: "text-gold-300", bg: "bg-gold-500/15" },
 };

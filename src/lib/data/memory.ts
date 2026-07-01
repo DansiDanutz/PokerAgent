@@ -23,9 +23,12 @@ import type {
   CreditMemberInput,
   RecordCashInput,
   Repository,
+  SweepResult,
 } from "./repository";
 import { buildNewMember } from "./newMember";
 import { ADMIN_EMAIL, isAdminEmail } from "@/lib/governance";
+import { isRakebackEligible } from "@/lib/levels";
+import { isDormant } from "@/lib/activity";
 import { SEED_NOTIFICATIONS, SEED_PASSWORD_HASH, SEED_TRANSACTIONS, SEED_USERS } from "./seed";
 
 /** Agent commission as a fraction of downline rake (illustrative default). */
@@ -171,13 +174,27 @@ export class MemoryRepository implements Repository {
       });
     };
     if (node) walk(node);
-    const networkRake = flat.reduce((s, n) => s + n.user.stats.rakeGenerated, 0);
+    // L0 (not yet KYC-verified) players can play, but their rake doesn't
+    // count toward the agent's commission until they reach L1 — this is the
+    // lever an agent has to chase: get players verified to start earning.
+    const rakebackEligible = flat.filter((n) =>
+      isRakebackEligible({
+        kycVerified: n.user.kycStatus === "verified",
+        tableHours: n.user.stats.tableHours,
+        directReferrals: n.children.length,
+      }),
+    );
+    const networkRake = rakebackEligible.reduce((s, n) => s + n.user.stats.rakeGenerated, 0);
+    // A negative agent is frozen: they stop earning (displayed) commission until
+    // they settle their balance back to zero or above.
+    const frozen = (agent?.balance ?? 0) < 0;
     return {
       directReferrals: node ? node.children.length : 0,
       totalNetwork: flat.length,
       activePlayers: flat.filter((n) => n.user.stats.handsPlayed > 0).length,
       networkRake,
-      commissionEarned: Math.round(networkRake * AGENT_COMMISSION_RATE),
+      commissionEarned: frozen ? 0 : Math.round(networkRake * AGENT_COMMISSION_RATE),
+      frozen,
       currency: agent?.currency ?? "USD",
     };
   }
@@ -205,6 +222,60 @@ export class MemoryRepository implements Repository {
     return false;
   }
 
+  async changeUpline(userId: string, newReferralCode: string): Promise<User> {
+    const user = this.users.get(userId);
+    if (!user) throw new Error("User not found");
+    if (!user.uplineAgentId) throw new Error("You don't have an agent to change");
+    if (!isDormant(user.lastActiveAt, new Date(), user.createdAt)) {
+      throw new Error("You can only change agents after 1 year of inactivity");
+    }
+    const newAgent = this.users.get(
+      (await this.getUserByReferralCode(newReferralCode))?.id ?? "",
+    );
+    if (!newAgent) throw new Error("No user found for that referral code");
+    if (newAgent.id === user.id) throw new Error("You cannot refer yourself");
+    if (newAgent.id === user.uplineAgentId) throw new Error("You are already with that agent");
+    if (await this.isUpline(user.id, newAgent.id)) {
+      throw new Error("That would create a loop in your network");
+    }
+
+    const oldAgent = this.users.get(user.uplineAgentId);
+    user.uplineAgentId = newAgent.id;
+    // Switching agents is itself activity — reset the dormancy clock.
+    user.lastActiveAt = this.now();
+
+    await this.addNotification({
+      userId: user.id,
+      kind: "system",
+      title: "Agent changed",
+      body: `You're now with ${newAgent.fullName} after a year of inactivity with your previous agent.`,
+    });
+    if (oldAgent) {
+      await this.addNotification({
+        userId: oldAgent.id,
+        kind: "referral",
+        title: "A dormant member left your network",
+        body: `${user.fullName} switched to a new agent after 1 year of inactivity.`,
+      });
+    }
+    await this.addNotification({
+      userId: newAgent.id,
+      kind: "referral",
+      title: "New member joined your network",
+      body: `${user.fullName} joined your network after leaving a dormant agent relationship.`,
+    });
+
+    return clone(user);
+  }
+
+  private isMemberRakebackEligible(member: User): boolean {
+    return isRakebackEligible({
+      kycVerified: member.kycStatus === "verified",
+      tableHours: member.stats.tableHours,
+      directReferrals: this.childrenOf(member.id).length,
+    });
+  }
+
   private async assertUpline(agentId: string, memberId: string): Promise<void> {
     // Admins may manage anyone; agents only their own downline.
     if (this.users.get(agentId)?.role === "admin") return;
@@ -215,13 +286,76 @@ export class MemoryRepository implements Repository {
 
   async creditMember(input: CreditMemberInput): Promise<Transaction> {
     await this.assertUpline(input.agentId, input.memberId);
-    return this.recordCash({
-      userId: input.memberId,
-      type: input.type,
+    const agent = this.users.get(input.agentId);
+    if (!agent) throw new Error("Agent not found");
+    const member = this.users.get(input.memberId);
+    if (!member) throw new Error("Member not found");
+    if (input.amount <= 0) throw new Error("Amount must be positive");
+    if (input.type === "rake_rebate" && !this.isMemberRakebackEligible(member)) {
+      throw new Error("This player must verify KYC (Level 1) before they can receive rakeback");
+    }
+
+    const ts = this.now();
+    // Agents fund credits from their OWN balance — every chip is backed.
+    // Admin is exempt (admin is the system's root source of value).
+    if (agent.role !== "admin") {
+      if (agent.balance < input.amount) {
+        throw new Error("Insufficient balance — request credit from admin first");
+      }
+      const debit: Transaction = {
+        id: this.id("t"),
+        userId: agent.id,
+        counterpartyId: member.id,
+        type: "transfer_out",
+        amount: -input.amount,
+        currency: agent.currency,
+        status: "completed",
+        note: input.note ?? `Credit to ${member.username}`,
+        createdAt: ts,
+        processedBy: agent.id,
+      };
+      agent.balance -= input.amount;
+      this.transactions.push(debit);
+    }
+    const credit: Transaction = {
+      id: this.id("t"),
+      userId: member.id,
+      counterpartyId: agent.role !== "admin" ? agent.id : undefined,
+      type: input.type, // semantic label for the member's history
       amount: input.amount,
+      currency: member.currency,
+      status: "completed",
       note: input.note,
-      processedBy: input.agentId,
-    });
+      createdAt: ts,
+      processedBy: agent.id,
+    };
+    member.balance += input.amount;
+    this.transactions.push(credit);
+    return clone(credit);
+  }
+
+  async setPlayerCreditLimit(actorId: string, playerId: string, creditLimit: number): Promise<User> {
+    const actor = this.users.get(actorId);
+    if (!actor) throw new Error("User not found");
+    const player = this.users.get(playerId);
+    if (!player) throw new Error("Player not found");
+    if (creditLimit < 0) throw new Error("Credit limit cannot be negative");
+    const isAdmin = actor.role === "admin";
+    if (!isAdmin) {
+      // Agents may only set limits on their DIRECT players.
+      if (player.uplineAgentId !== actorId) {
+        throw new Error("You can only set credit limits for your own players");
+      }
+      // Sum of limits across the agent's players cannot exceed the agent's balance.
+      const others = [...this.users.values()]
+        .filter((u) => u.uplineAgentId === actorId && u.id !== playerId)
+        .reduce((s, u) => s + (u.creditLimit ?? 0), 0);
+      if (others + creditLimit > actor.balance) {
+        throw new Error("Total credit limits would exceed your balance");
+      }
+    }
+    player.creditLimit = creditLimit;
+    return clone(player);
   }
 
   async setMemberTableHours(agentId: string, memberId: string, hours: number): Promise<User> {
@@ -283,17 +417,13 @@ export class MemoryRepository implements Repository {
     if (!user) throw new Error("User not found");
     if (input.amount <= 0) throw new Error("Amount must be positive");
 
-    const isDebit = input.type === "withdrawal";
-    const signed = isDebit ? -input.amount : input.amount;
-    // Deposits/withdrawals start pending (need approval); rebates/adjustments post immediately.
-    const status: Transaction["status"] =
-      input.type === "deposit" || input.type === "withdrawal" ? "pending" : "completed";
-
+    // Self-deposits start pending (admin approves); rebates/adjustments post now.
+    const status: Transaction["status"] = input.type === "deposit" ? "pending" : "completed";
     const tx: Transaction = {
       id: this.id("t"),
       userId: input.userId,
       type: input.type,
-      amount: signed,
+      amount: input.amount, // always a positive credit now (no withdrawals here)
       currency: user.currency,
       status,
       note: input.note,
@@ -301,8 +431,37 @@ export class MemoryRepository implements Repository {
       processedBy: input.processedBy,
     };
     this.transactions.push(tx);
-    if (status === "completed") user.balance += signed;
+    if (status === "completed") user.balance += input.amount;
     return clone(tx);
+  }
+
+  /** Gate for non-admin money movement between two existing users. */
+  private assertTransferAllowed(from: User, to: User): void {
+    if (from.role === "admin") {
+      throw new Error("Admins use Adjust balance, not transfer");
+    }
+    if (from.role === "agent" && to.role === "player") {
+      // Agent may only fund players in their own downline (direct or indirect).
+      let cur = to.uplineAgentId;
+      let guard = 0;
+      let inNetwork = false;
+      while (cur && guard < 50) {
+        if (cur === from.id) { inNetwork = true; break; }
+        cur = this.users.get(cur)?.uplineAgentId ?? null;
+        guard += 1;
+      }
+      if (!inNetwork) throw new Error("You can only send chips to players in your own network");
+      return;
+    }
+    if (from.role === "agent" && to.role === "agent") return; // agent ↔ agent allowed
+    if (from.role === "player" && to.role === "agent") return; // pay back any agent
+    if (from.role === "player" && to.role === "player") {
+      if (!from.uplineAgentId || from.uplineAgentId !== to.uplineAgentId) {
+        throw new Error("Players can only transfer to other players under the same agent");
+      }
+      return;
+    }
+    throw new Error("That transfer is not allowed");
   }
 
   async transfer(
@@ -314,6 +473,7 @@ export class MemoryRepository implements Repository {
     if (!to) throw new Error("No user found for that referral code");
     const recipient = this.users.get(to.id)!;
     if (recipient.id === from.id) throw new Error("Cannot transfer to yourself");
+    this.assertTransferAllowed(from, recipient);
     if (input.amount <= 0) throw new Error("Amount must be positive");
     if (from.balance < input.amount) throw new Error("Insufficient balance");
 
@@ -380,6 +540,93 @@ export class MemoryRepository implements Repository {
     if (n) n.read = true;
   }
 
+  async addNotification(input: Omit<Notification, "id" | "read" | "createdAt">): Promise<Notification> {
+    const n: Notification = { ...input, id: this.id("n"), read: false, createdAt: this.now() };
+    this.notifications.push(n);
+    return clone(n);
+  }
+
+  // --- agent credit / settlement -------------------------------------------
+  async requestAgentCredit(agentId: string, amount: number, note?: string): Promise<Transaction> {
+    const agent = this.users.get(agentId);
+    if (!agent) throw new Error("User not found");
+    if (agent.role !== "agent") throw new Error("Only agents can request credit");
+    if (amount <= 0) throw new Error("Amount must be positive");
+    if (agent.balance < 0) {
+      throw new Error("Your balance is negative — settle it before requesting credit");
+    }
+    const tx: Transaction = {
+      id: this.id("t"),
+      userId: agentId,
+      type: "agent_credit",
+      amount, // positive magnitude, not yet applied
+      currency: agent.currency,
+      status: "pending",
+      note,
+      createdAt: this.now(),
+    };
+    this.transactions.push(tx);
+    return clone(tx);
+  }
+
+  async decideAgentCredit(
+    adminId: string,
+    txId: string,
+    decision: "approved" | "rejected",
+  ): Promise<Transaction> {
+    this.assertAdmin(adminId);
+    const tx = this.transactions.find((t) => t.id === txId);
+    if (!tx) throw new Error("Transaction not found");
+    if (tx.type !== "agent_credit") throw new Error("Not a credit request");
+    if (tx.status !== "pending") throw new Error("Request already decided");
+    return this.setTransactionStatus(txId, decision, adminId);
+  }
+
+  async listAgentCreditRequests(): Promise<Transaction[]> {
+    return clone(
+      this.transactions
+        .filter((t) => t.type === "agent_credit" && t.status === "pending")
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    );
+  }
+
+  async listSettlements(): Promise<Transaction[]> {
+    return clone(
+      this.transactions
+        .filter((t) => t.type === "agent_credit")
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    );
+  }
+
+  // --- daily negative-balance sweep ----------------------------------------
+  async sweepNegativeBalances(): Promise<SweepResult[]> {
+    const results: SweepResult[] = [];
+    const ts = this.now();
+    for (const player of [...this.users.values()]) {
+      if (player.role !== "player" || player.balance >= 0 || !player.uplineAgentId) continue;
+      const agent = this.users.get(player.uplineAgentId);
+      if (!agent) continue;
+      const amount = -player.balance; // positive shortfall
+
+      // Zero the player, debit the agent — paired adjustment entries.
+      this.transactions.push({
+        id: this.id("t"), userId: player.id, counterpartyId: agent.id, type: "adjustment",
+        amount, currency: player.currency, status: "completed",
+        note: "Negative balance settled by agent", createdAt: ts, processedBy: agent.id,
+      });
+      player.balance = 0;
+      this.transactions.push({
+        id: this.id("t"), userId: agent.id, counterpartyId: player.id, type: "adjustment",
+        amount: -amount, currency: agent.currency, status: "completed",
+        note: `Absorbed ${player.username}'s negative balance`, createdAt: ts, processedBy: agent.id,
+      });
+      agent.balance -= amount;
+
+      results.push({ playerId: player.id, agentId: agent.id, amount, agentNowNegative: agent.balance < 0 });
+    }
+    return results;
+  }
+
   async getAdminOverview(): Promise<AdminOverview> {
     const users = [...this.users.values()];
     const agents = users.filter((u) => u.role === "agent");
@@ -399,7 +646,8 @@ export class MemoryRepository implements Repository {
   async listPendingTransactions(): Promise<Transaction[]> {
     return clone(
       this.transactions
-        .filter((t) => t.status === "pending")
+        // agent_credit requests live in their own Settlement queue, not here.
+        .filter((t) => t.status === "pending" && t.type !== "agent_credit")
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     );
   }

@@ -40,12 +40,18 @@ export function LoginForm() {
         </Button>
       </form>
 
+      <div className="flex items-center gap-3 text-[10px] uppercase tracking-wider text-ink-500">
+        <span className="h-px flex-1 bg-white/10" />
+        Quick demo access
+        <span className="h-px flex-1 bg-white/10" />
+      </div>
+
       <div className="flex items-center gap-2">
         {DEMO_LOGINS.map((d) => (
           <button
             key={d.email}
             onClick={() => tryAs(d.email)}
-            className="flex-1 rounded-xl bg-white/5 px-2 py-2 text-center text-xs font-medium text-ink-200 ring-1 ring-inset ring-white/10 hover:bg-white/10"
+            className="flex-1 rounded-xl bg-white/5 px-2 py-2.5 text-center text-xs font-medium text-ink-200 ring-1 ring-inset ring-white/10 transition hover:bg-white/10 hover:ring-white/20"
           >
             Try as {d.label}
           </button>

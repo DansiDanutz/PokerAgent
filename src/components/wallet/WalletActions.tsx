@@ -6,7 +6,7 @@ import { clsx } from "clsx";
 import { Card, Button } from "@/components/ui";
 import { recordCash, transferAction, type FormState } from "@/app/actions";
 
-type Tab = "deposit" | "withdraw" | "send" | "receive";
+type Tab = "deposit" | "payback" | "send" | "receive";
 
 const inputCls =
   "w-full rounded-xl bg-felt-900 px-3.5 py-2.5 text-sm text-ink-100 outline-none ring-1 ring-inset ring-white/10 placeholder:text-ink-500 focus:ring-emerald-glow/50";
@@ -15,7 +15,7 @@ export function WalletActions({ referralCode }: { referralCode: string }) {
   const [tab, setTab] = useState<Tab>("deposit");
   const tabs: { id: Tab; label: string; icon: typeof ArrowDownToLine }[] = [
     { id: "deposit", label: "Deposit", icon: ArrowDownToLine },
-    { id: "withdraw", label: "Withdraw", icon: ArrowUpFromLine },
+    { id: "payback", label: "Pay back", icon: ArrowUpFromLine },
     { id: "send", label: "Send", icon: SendHorizontal },
     { id: "receive", label: "Receive", icon: QrCode },
   ];
@@ -41,30 +41,27 @@ export function WalletActions({ referralCode }: { referralCode: string }) {
         })}
       </div>
 
-      {tab === "deposit" && <CashForm type="deposit" />}
-      {tab === "withdraw" && <CashForm type="withdrawal" />}
+      {tab === "deposit" && <CashForm />}
+      {tab === "payback" && <PaybackForm />}
       {tab === "send" && <TransferForm />}
       {tab === "receive" && <Receive code={referralCode} />}
     </Card>
   );
 }
 
-function CashForm({ type }: { type: "deposit" | "withdrawal" }) {
-  const isDeposit = type === "deposit";
+function CashForm() {
   return (
     <form action={recordCash} className="space-y-3">
-      <input type="hidden" name="type" value={type} />
+      <input type="hidden" name="type" value="deposit" />
       <label className="block">
         <span className="mb-1 block text-xs font-medium text-ink-400">Amount (USD)</span>
         <input name="amount" type="number" min="1" step="0.01" placeholder="100.00" className={inputCls} required />
       </label>
       <p className="text-xs text-ink-500">
-        {isDeposit
-          ? "Deposit requests are reviewed by your agent or an admin before crediting."
-          : "Withdrawals require admin approval and are paid out off-platform."}
+        Deposit requests are reviewed by your agent or an admin before crediting.
       </p>
-      <Button type="submit" className="w-full" variant={isDeposit ? "primary" : "gold"}>
-        {isDeposit ? "Request deposit" : "Request withdrawal"}
+      <Button type="submit" className="w-full" variant="primary">
+        Request deposit
       </Button>
     </form>
   );
@@ -91,6 +88,34 @@ function TransferForm() {
       {state.error && <p className="text-xs text-[var(--color-danger)]" role="alert">{state.error}</p>}
       <Button type="submit" className="w-full" disabled={pending}>
         {pending ? "Sending…" : "Send money"}
+      </Button>
+    </form>
+  );
+}
+
+function PaybackForm() {
+  const [state, action, pending] = useActionState(transferAction, initial);
+  return (
+    <form action={action} className="space-y-3">
+      <label className="block">
+        <span className="mb-1 block text-xs font-medium text-ink-400">Agent code</span>
+        <input name="toReferralCode" placeholder="PAGENT-ARJUN12" className={inputCls} required />
+      </label>
+      <label className="block">
+        <span className="mb-1 block text-xs font-medium text-ink-400">Amount (USD)</span>
+        <input name="amount" type="number" min="0.01" step="0.01" placeholder="50.00" className={inputCls} required />
+      </label>
+      <label className="block">
+        <span className="mb-1 block text-xs font-medium text-ink-400">Message (optional)</span>
+        <input name="note" placeholder="Cashing out from tonight's session" className={inputCls} />
+      </label>
+      <p className="text-xs text-ink-500">
+        Sends chips straight to any agent — settles instantly, no approval needed. Use this to
+        cash out chips you received from an agent, even if it isn&apos;t the one who sent them.
+      </p>
+      {state.error && <p className="text-xs text-[var(--color-danger)]" role="alert">{state.error}</p>}
+      <Button type="submit" className="w-full" variant="gold" disabled={pending}>
+        {pending ? "Sending…" : "Pay back agent"}
       </Button>
     </form>
   );

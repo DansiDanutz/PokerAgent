@@ -7,13 +7,16 @@ import {
   Trophy,
   Bell,
   Lock,
+  UserX,
 } from "lucide-react";
 import { Spade } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/session";
 import { CLUB } from "@/lib/clubgg";
 import { Card, Stat, SectionTitle, Badge, Avatar, ProgressBar } from "@/components/ui";
 import { ChangePassword } from "@/components/profile/ChangePassword";
+import { ChangeAgentForm } from "@/components/profile/ChangeAgentForm";
 import { formatMoney, formatNumber, formatDate } from "@/lib/format";
+import { isDormant, daysSinceActive } from "@/lib/activity";
 import type { KycStatus } from "@/types/domain";
 
 const KYC_TONE: Record<KycStatus, string> = {
@@ -25,6 +28,9 @@ const KYC_TONE: Record<KycStatus, string> = {
 
 export default async function ProfilePage() {
   const user = (await getCurrentUser())!;
+  const canSwitchAgent =
+    !!user.uplineAgentId && isDormant(user.lastActiveAt, new Date(), user.createdAt);
+  const inactiveDays = daysSinceActive(user.lastActiveAt, new Date(), user.createdAt);
   // Illustrative achievements derived from stats.
   const achievements = [
     { label: "Hands milestone", value: Math.min(1, user.stats.handsPlayed / 50000), hint: `${formatNumber(user.stats.handsPlayed)} / 50,000` },
@@ -53,6 +59,28 @@ export default async function ProfilePage() {
           </div>
         </div>
       </Card>
+
+      {canSwitchAgent && (
+        <Card glow="ember">
+          <div className="flex items-start gap-3">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-ember-500/15">
+              <UserX size={16} className="text-ember-400" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-ink-100">
+                You&apos;ve been inactive for {formatNumber(inactiveDays)} days
+              </p>
+              <p className="mt-1 text-xs text-ink-400">
+                After a year without activity, you&apos;re free to leave your current agent and join
+                a new one — enter their invite code below.
+              </p>
+              <div className="mt-3">
+                <ChangeAgentForm />
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>

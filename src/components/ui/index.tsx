@@ -9,7 +9,7 @@ export function Card({
 }: {
   children: ReactNode;
   className?: string;
-  glow?: "gold" | "emerald";
+  glow?: "gold" | "emerald" | "ember";
 }) {
   return (
     <div
@@ -17,6 +17,7 @@ export function Card({
         "card-surface p-5",
         glow === "gold" && "gold-ring",
         glow === "emerald" && "emerald-glow",
+        glow === "ember" && "ember-glow",
         className,
       )}
     >
@@ -35,10 +36,10 @@ export function SectionTitle({
   action?: ReactNode;
 }) {
   return (
-    <div className="mb-4 flex flex-wrap items-end justify-between gap-x-3 gap-y-2">
+    <div className="mb-4 flex flex-wrap items-end justify-between gap-x-3 gap-y-2 border-b border-white/[0.06] pb-3">
       <div className="min-w-0">
         <h2 className="text-lg font-semibold tracking-tight text-ink-100">{title}</h2>
-        {subtitle && <p className="text-sm text-ink-400">{subtitle}</p>}
+        {subtitle && <p className="mt-0.5 text-sm leading-snug text-ink-400">{subtitle}</p>}
       </div>
       {action}
     </div>
@@ -54,19 +55,20 @@ export function Stat({
   label: string;
   value: ReactNode;
   hint?: ReactNode;
-  tone?: "default" | "up" | "down" | "gold";
+  tone?: "default" | "up" | "down" | "gold" | "ember";
 }) {
   return (
     <div className="card-surface p-4">
       {/* min-h keeps the value baseline aligned across a row even when one
           tile's label wraps to two lines and a neighbor's doesn't. */}
-      <p className="min-h-[2rem] text-xs uppercase leading-4 tracking-wide text-ink-400">{label}</p>
+      <p className="min-h-[2rem] text-[11px] font-medium uppercase leading-4 tracking-wider text-ink-400">{label}</p>
       <p
         className={clsx(
-          "mt-1 text-xl font-semibold",
+          "mt-1 font-display text-xl font-semibold tabular-nums",
           tone === "up" && "text-emerald-soft",
           tone === "down" && "text-[var(--color-danger)]",
           tone === "gold" && "gold-text",
+          tone === "ember" && "ember-text",
           tone === "default" && "text-ink-100",
         )}
       >
@@ -80,6 +82,7 @@ export function Stat({
 const badgeTones: Record<string, string> = {
   emerald: "bg-emerald-glow/15 text-emerald-soft ring-emerald-glow/30",
   gold: "bg-gold-500/15 text-gold-300 ring-gold-500/30",
+  ember: "bg-ember-500/15 text-ember-300 ring-ember-500/35",
   neutral: "bg-white/5 text-ink-300 ring-white/10",
   danger: "bg-[var(--color-danger)]/15 text-[var(--color-danger)] ring-[var(--color-danger)]/30",
   warning: "bg-[var(--color-warning)]/15 text-[var(--color-warning)] ring-[var(--color-warning)]/30",
@@ -151,17 +154,18 @@ export function Button({
   ...props
 }: {
   children: ReactNode;
-  variant?: "primary" | "ghost" | "gold";
+  variant?: "primary" | "ghost" | "gold" | "ember";
 } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button
       type={type}
       className={clsx(
-        "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition",
+        "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100",
         variant === "primary" && "btn-primary",
         variant === "ghost" && "bg-white/5 text-ink-100 hover:bg-white/10 ring-1 ring-inset ring-white/10",
         variant === "gold" &&
           "bg-gradient-to-b from-gold-300 to-gold-500 text-[#241c05] font-semibold hover:brightness-105",
+        variant === "ember" && "btn-ember",
         className,
       )}
       {...props}

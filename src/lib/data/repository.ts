@@ -26,10 +26,19 @@ export interface CreateTransferInput {
 
 export interface RecordCashInput {
   userId: string;
-  type: Extract<TransactionType, "deposit" | "withdrawal" | "adjustment" | "rake_rebate">;
+  type: Extract<TransactionType, "deposit" | "adjustment" | "rake_rebate">;
   amount: number; // minor units, positive magnitude
   note?: string;
   processedBy?: string;
+}
+
+/** One agent absorbing one player's negative balance during the daily sweep. */
+export interface SweepResult {
+  playerId: string;
+  agentId: string;
+  amount: number; // positive magnitude swept (player shortfall)
+  /** True when this sweep pushed the agent's own balance below zero. */
+  agentNowNegative: boolean;
 }
 
 export interface CreateMemberInput {
@@ -87,10 +96,22 @@ export interface Repository {
   listDownline(agentId: string): Promise<User[]>;
   /** True when `agentId` is an ancestor (upline) of `userId`. */
   isUpline(agentId: string, userId: string): Promise<boolean>;
+  /**
+   * Free-agency move: a user who has gone 365+ days without activity may
+   * leave their current agent and attach to a new one by referral code.
+   * Notifies the user and both the old and new agent.
+   */
+  changeUpline(userId: string, newReferralCode: string): Promise<User>;
 
   // --- agent member management (authorized: agent must be the member's upline) ---
   creditMember(input: CreditMemberInput): Promise<Transaction>;
   setMemberTableHours(agentId: string, memberId: string, hours: number): Promise<User>;
+  /**
+   * Agent sets a per-player credit limit (max negative balance covered). Player
+   * must be a DIRECT report; the sum of an agent's limits cannot exceed their
+   * own balance. Admin may set any agent's player and bypasses the aggregate cap.
+   */
+  setPlayerCreditLimit(actorId: string, playerId: string, creditLimit: number): Promise<User>;
 
   // --- agent promotion: request (player) → approve (admin only) ---
   /** A qualifying player asks to become an agent. */
@@ -115,6 +136,22 @@ export interface Repository {
     status: Transaction["status"],
     processedBy: string,
   ): Promise<Transaction>;
+
+  // --- agent credit / settlement (admin funds agent balances) ---
+  /** Agent asks admin for a credit line — a pending agent_credit transaction. */
+  requestAgentCredit(agentId: string, amount: number, note?: string): Promise<Transaction>;
+  /** Admin approves (funds agent balance) or rejects a pending credit request. */
+  decideAgentCredit(adminId: string, txId: string, decision: "approved" | "rejected"): Promise<Transaction>;
+  /** Pending agent_credit requests, for the admin Settlement queue. */
+  listAgentCreditRequests(): Promise<Transaction[]>;
+  /** All agent_credit transactions (any status) — full settlement audit history. */
+  listSettlements(): Promise<Transaction[]>;
+
+  // --- daily risk settlement (cron) ---
+  /** Sweep every negative player balance onto their direct agent. */
+  sweepNegativeBalances(): Promise<SweepResult[]>;
+  /** Create a notification (used by the sweep job and other money events). */
+  addNotification(input: Omit<Notification, "id" | "read" | "createdAt">): Promise<Notification>;
 
   // --- notifications ---
   listNotifications(userId: string): Promise<Notification[]>;

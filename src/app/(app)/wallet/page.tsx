@@ -19,7 +19,7 @@ export default async function WalletPage() {
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <Stat label="Balance" value={formatMoney(user.balance, user.currency)} tone="gold" />
-        <Stat label="Pending" value={formatMoney(pending, user.currency)} tone={pending ? "down" : "default"} />
+        <Stat label="Pending" value={formatMoney(pending, user.currency)} tone={pending ? "ember" : "default"} />
         <div className="col-span-2 sm:col-span-1">
           <Stat label="Transactions" value={String(transactions.length)} />
         </div>
@@ -36,14 +36,14 @@ export default async function WalletPage() {
               const Icon = meta.icon;
               return (
                 <li key={tx.id} className="flex items-center gap-3 py-3">
-                  <div className={`grid h-9 w-9 place-items-center rounded-full ${meta.bg}`}>
+                  <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${meta.bg}`}>
                     <Icon size={16} className={meta.color} />
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm text-ink-100">{meta.label}</p>
-                    <p className="text-xs text-ink-500">{formatDate(tx.createdAt)}{tx.note ? ` · ${tx.note}` : ""}</p>
+                    <p className="truncate text-xs text-ink-500">{formatDate(tx.createdAt)}{tx.note ? ` · ${tx.note}` : ""}</p>
                   </div>
-                  <div className="text-right">
+                  <div className="shrink-0 text-right">
                     <p className={`text-sm font-semibold ${tx.amount >= 0 ? "text-emerald-soft" : "text-[var(--color-danger)]"}`}>
                       {tx.amount >= 0 ? "+" : "−"}{formatMoney(Math.abs(tx.amount), tx.currency)}
                     </p>
