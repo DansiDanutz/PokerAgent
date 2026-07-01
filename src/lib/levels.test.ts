@@ -75,15 +75,24 @@ describe("canEarnReferrals", () => {
 });
 
 describe("agentProgress", () => {
-  it("tracks each promotion requirement", () => {
-    const p = agentProgress({ level: 2, directReferrals: 3, vipReferrals: 1 });
+  it("is eligible once the network has 10+ VIP players", () => {
+    const p = agentProgress({ vipNetworkCount: 10 });
     expect(p.eligible).toBe(true);
-    expect(p.completed).toBe(3);
+    expect(p.current).toBe(10);
+    expect(p.target).toBe(10);
   });
 
-  it("is not eligible when short on referrals", () => {
-    const p = agentProgress({ level: 2, directReferrals: 1, vipReferrals: 0 });
+  it("is eligible with more than the minimum too", () => {
+    expect(agentProgress({ vipNetworkCount: 15 }).eligible).toBe(true);
+  });
+
+  it("is not eligible short of the threshold", () => {
+    const p = agentProgress({ vipNetworkCount: 9 });
     expect(p.eligible).toBe(false);
-    expect(p.items.find((i) => i.key === "referrals")?.done).toBe(false);
+    expect(p.current).toBe(9);
+  });
+
+  it("is not eligible with zero VIP players", () => {
+    expect(agentProgress({ vipNetworkCount: 0 }).eligible).toBe(false);
   });
 });

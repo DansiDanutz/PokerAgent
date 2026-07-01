@@ -114,41 +114,27 @@ export const STATUS_LABEL: Record<MemberStatus, string> = {
 
 // ---- Path to Agent ---------------------------------------------------------
 
-export interface AgentRequirement {
-  key: "level" | "referrals" | "vipReferrals";
-  label: string;
-  target: number;
-}
-
-/** Placeholder promotion criteria — adjust the targets to your program. */
-export const AGENT_REQUIREMENTS: AgentRequirement[] = [
-  { key: "level", label: "Reach VIP Player (Level 2)", target: 2 },
-  { key: "referrals", label: "Refer 3 members", target: 3 },
-  { key: "vipReferrals", label: "1 referral reaches VIP", target: 1 },
-];
+/**
+ * Anyone can refer friends, and referral earning unlocks per-user at VIP
+ * (L2+, see `canEarnReferrals`). Becoming an agent is a separate, single
+ * threshold: grow your own network to at least this many VIP+ players
+ * (not counting yourself).
+ */
+export const AGENT_MIN_VIP_NETWORK = 10;
 
 export interface AgentProgressInput {
-  level: number;
-  directReferrals: number;
-  vipReferrals: number;
-}
-
-export interface AgentProgressItem extends AgentRequirement {
-  current: number;
-  done: boolean;
+  /** VIP+ (L2+) players anywhere in the user's network, excluding themselves. */
+  vipNetworkCount: number;
 }
 
 export function agentProgress(input: AgentProgressInput): {
-  items: AgentProgressItem[];
+  current: number;
+  target: number;
   eligible: boolean;
-  completed: number;
 } {
-  const valueFor = (key: AgentRequirement["key"]): number =>
-    key === "level" ? input.level : key === "referrals" ? input.directReferrals : input.vipReferrals;
-  const items = AGENT_REQUIREMENTS.map((r) => {
-    const current = valueFor(r.key);
-    return { ...r, current, done: current >= r.target };
-  });
-  const completed = items.filter((i) => i.done).length;
-  return { items, eligible: completed === items.length, completed };
+  return {
+    current: input.vipNetworkCount,
+    target: AGENT_MIN_VIP_NETWORK,
+    eligible: input.vipNetworkCount >= AGENT_MIN_VIP_NETWORK,
+  };
 }

@@ -32,7 +32,7 @@ import type {
 import { AGENT_COMMISSION_RATE } from "./memory";
 import { buildNewMember } from "./newMember";
 import { ADMIN_EMAIL, isAdminEmail } from "@/lib/governance";
-import { isRakebackEligible } from "@/lib/levels";
+import { isRakebackEligible, canEarnReferrals } from "@/lib/levels";
 import { isDormant } from "@/lib/activity";
 
 type ProfileRow = {
@@ -283,12 +283,22 @@ export class SupabaseRepository implements Repository {
     );
     const networkRake = rakebackEligible.reduce((s, u) => s + u.stats.rakeGenerated, 0);
     const frozen = (root?.balance ?? 0) < 0;
+    // Anyone can refer friends, but earning commission from your own network
+    // requires YOU to be VIP (L2+) — a brand-new player can grow a tree, they
+    // just don't get paid from it until they reach VIP themselves.
+    const selfEarns =
+      !!root &&
+      canEarnReferrals({
+        kycVerified: root.kycStatus === "verified",
+        tableHours: root.stats.tableHours,
+        directReferrals: all.filter((u) => u.uplineAgentId === root.id).length,
+      });
     return {
       directReferrals: root ? all.filter((u) => u.uplineAgentId === root.id).length : 0,
       totalNetwork: flat.length,
       activePlayers: flat.filter((u) => u.stats.handsPlayed > 0).length,
       networkRake,
-      commissionEarned: frozen ? 0 : Math.round(networkRake * AGENT_COMMISSION_RATE),
+      commissionEarned: frozen || !selfEarns ? 0 : Math.round(networkRake * AGENT_COMMISSION_RATE),
       frozen,
       currency: root?.currency ?? "USD",
     };

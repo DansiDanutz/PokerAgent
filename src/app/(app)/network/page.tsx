@@ -3,18 +3,11 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { getRepository } from "@/lib/data";
 import { Card, Stat, SectionTitle, Badge } from "@/components/ui";
 import { NetworkTree } from "@/components/network/NetworkTree";
+import { TreeVisual } from "@/components/network/TreeVisual";
 import { RakeBarChart } from "@/components/charts/RakeBarChart";
 import { InviteCard } from "@/components/InviteCard";
-import type { NetworkNode } from "@/types/domain";
+import { flattenNetwork } from "@/lib/network";
 import { formatMoney, formatNumber } from "@/lib/format";
-
-function flatten(node: NetworkNode, acc: NetworkNode[] = []): NetworkNode[] {
-  for (const c of node.children) {
-    acc.push(c);
-    flatten(c, acc);
-  }
-  return acc;
-}
 
 export default async function NetworkPage() {
   const user = (await getCurrentUser())!;
@@ -25,7 +18,7 @@ export default async function NetworkPage() {
   ]);
   if (!tree) redirect("/dashboard");
 
-  const players = flatten(tree).sort(
+  const players = flattenNetwork(tree).sort(
     (a, b) => b.user.stats.rakeGenerated - a.user.stats.rakeGenerated,
   );
   const chartData = players.slice(0, 6).map((n) => ({
@@ -46,6 +39,21 @@ export default async function NetworkPage() {
         <Stat label="Active players" value={formatNumber(summary.activePlayers)} tone="up" />
         <Stat label="Commission" value={formatMoney(summary.commissionEarned, summary.currency)} tone="gold" />
       </div>
+
+      <Card>
+        <SectionTitle
+          title="Your tree"
+          subtitle="Tap an empty slot to invite someone via WhatsApp"
+          action={<Badge tone="gold">{summary.directReferrals} direct</Badge>}
+        />
+        <TreeVisual
+          rootName={user.fullName}
+          rootAvatarUrl={user.avatarUrl}
+          rootRole={user.role}
+          children={tree.children}
+          referralCode={user.referralCode}
+        />
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">

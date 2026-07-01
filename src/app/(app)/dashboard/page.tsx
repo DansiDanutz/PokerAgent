@@ -12,12 +12,10 @@ import {
   Shield,
   Megaphone,
   Target,
-  CheckCircle2,
-  Circle,
 } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getRepository } from "@/lib/data";
-import { Card, Badge } from "@/components/ui";
+import { Card, Badge, ProgressBar } from "@/components/ui";
 import { DashboardCard, type DashboardCardProps } from "@/components/dashboard/DashboardCard";
 import { MemberStatusBadge } from "@/components/MemberStatusBadge";
 import { ClubCard } from "@/components/clubgg/ClubCard";
@@ -29,6 +27,7 @@ import {
   agentProgress,
   LEVELS,
 } from "@/lib/levels";
+import { flattenNetwork } from "@/lib/network";
 import { requestAgentStatus } from "@/app/actions";
 import type { NetworkNode } from "@/types/domain";
 import { formatMoney, formatMoneyCompact, formatNumber } from "@/lib/format";
@@ -52,8 +51,11 @@ export default async function DashboardPage() {
 
   const directReferrals = tree?.children.length ?? 0;
   const totalNetwork = tree?.subtreeSize ?? 0;
-  const vipReferrals =
-    tree?.children.filter((c) => memberStatus(nodeLevelInputs(c)) === "vip_player").length ?? 0;
+  // Agent eligibility counts VIP+ players anywhere in the network, not just
+  // direct referrals — a player can qualify via referrals-of-referrals too.
+  const vipNetworkCount = tree
+    ? flattenNetwork(tree).filter((n) => memberStatus(nodeLevelInputs(n)) === "vip_player").length
+    : 0;
   const unread = notifications.filter((n) => !n.read).length;
 
   const myInputs = {
@@ -63,7 +65,7 @@ export default async function DashboardPage() {
   };
   const level = currentLevel(myInputs);
   const next = nextLevel(myInputs);
-  const progress = agentProgress({ level: level.level, directReferrals, vipReferrals });
+  const progress = agentProgress({ vipNetworkCount });
 
   // Role-aware big cards. For non-players, "Network" highlights direct
   // referrals (who they personally brought in) while "Manage Members" below
@@ -214,7 +216,7 @@ export default async function DashboardPage() {
                 </button>
               </form>
             ) : (
-              <span className="text-xs text-ink-400">{progress.completed}/{progress.items.length} targets met</span>
+              <span className="text-xs text-ink-400">{progress.current}/{progress.target} VIP players</span>
             )}
           </div>
 
@@ -238,21 +240,15 @@ export default async function DashboardPage() {
             </p>
           )}
 
-          <ul className="space-y-2">
-            {progress.items.map((item) => (
-              <li key={item.key} className="flex items-center gap-3">
-                {item.done ? (
-                  <CheckCircle2 size={18} className="text-emerald-soft" />
-                ) : (
-                  <Circle size={18} className="text-ink-500" />
-                )}
-                <span className={`flex-1 text-sm ${item.done ? "text-ink-200" : "text-ink-400"}`}>{item.label}</span>
-                <span className="text-xs font-medium text-ink-300">
-                  {Math.min(item.current, item.target)}/{item.target}
-                </span>
-              </li>
-            ))}
-          </ul>
+          <p className="mb-2 text-xs text-ink-400">
+            Anyone can refer friends. Growing{" "}
+            <span className="text-ink-200">{progress.target} VIP (Level 2+) players</span> in your
+            network — not counting yourself — unlocks becoming an agent.
+          </p>
+          <ProgressBar value={Math.min(1, progress.current / progress.target)} tone={progress.eligible ? "gold" : "emerald"} />
+          <p className="mt-1.5 text-right text-xs font-medium text-ink-300">
+            {progress.current} / {progress.target} VIP players
+          </p>
         </Card>
       )}
 

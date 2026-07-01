@@ -3,9 +3,11 @@ const path = require("path");
 
 const OUT_DIR = path.join(__dirname, "..", "public");
 
-const GOLD_FROM = "#f3d89b";
-const GOLD_TO = "#d4af37";
-const BG = "#0e1813";
+const GOLD_FROM = "#f8e3b0";
+const GOLD_MID = "#e9c46a";
+const GOLD_TO = "#b9860a";
+const BG_FROM = "#1a2d23";
+const BG_TO = "#060a08";
 
 // Spade path authored in a 32x32 box (from src/app/icon.svg), reused at scale.
 const SPADE_PATH =
@@ -17,13 +19,23 @@ function iconSvg({ size, cornerRadiusFrac, contentScale }) {
   const offset = (size - contentSize) / 2;
   const scale = contentSize / 32;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-  <rect width="${size}" height="${size}" rx="${r}" fill="${BG}"/>
   <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="${BG_FROM}"/>
+      <stop offset="1" stop-color="${BG_TO}"/>
+    </linearGradient>
     <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="${GOLD_FROM}"/>
+      <stop offset="0.5" stop-color="${GOLD_MID}"/>
       <stop offset="1" stop-color="${GOLD_TO}"/>
     </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.1"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
   </defs>
+  <rect width="${size}" height="${size}" rx="${r}" fill="url(#bg)"/>
+  <rect width="${size}" height="${size * 0.5}" rx="${r}" fill="url(#sheen)"/>
   <g transform="translate(${offset} ${offset}) scale(${scale})">
     <path fill="url(#g)" d="${SPADE_PATH}"/>
   </g>

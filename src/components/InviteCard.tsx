@@ -3,11 +3,11 @@
 import { useState } from "react";
 import { Copy, Check, Share2 } from "lucide-react";
 import { Card } from "@/components/ui";
+import { buildWhatsAppInviteLink } from "@/lib/whatsapp";
 
 export function InviteCard({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
-  const message = `Join me on Poker Agent and get rakeback on every hand. Use my invite code ${code} to sign up: https://pokeragent.app/r/${code}`;
-  const whatsapp = `https://wa.me/?text=${encodeURIComponent(message)}`;
+  const whatsapp = buildWhatsAppInviteLink(code);
 
   const copy = async () => {
     try {

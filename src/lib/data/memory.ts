@@ -27,7 +27,7 @@ import type {
 } from "./repository";
 import { buildNewMember } from "./newMember";
 import { ADMIN_EMAIL, isAdminEmail } from "@/lib/governance";
-import { isRakebackEligible } from "@/lib/levels";
+import { isRakebackEligible, canEarnReferrals } from "@/lib/levels";
 import { isDormant } from "@/lib/activity";
 import { SEED_NOTIFICATIONS, SEED_PASSWORD_HASH, SEED_TRANSACTIONS, SEED_USERS } from "./seed";
 
@@ -196,12 +196,22 @@ export class MemoryRepository implements Repository {
     // A negative agent is frozen: they stop earning (displayed) commission until
     // they settle their balance back to zero or above.
     const frozen = (agent?.balance ?? 0) < 0;
+    // Anyone can refer friends, but earning commission from your own network
+    // requires YOU to be VIP (L2+) — a brand-new player can grow a tree, they
+    // just don't get paid from it until they reach VIP themselves.
+    const selfEarns =
+      !!agent &&
+      canEarnReferrals({
+        kycVerified: agent.kycStatus === "verified",
+        tableHours: agent.stats.tableHours,
+        directReferrals: node?.children.length ?? 0,
+      });
     return {
       directReferrals: node ? node.children.length : 0,
       totalNetwork: flat.length,
       activePlayers: flat.filter((n) => n.user.stats.handsPlayed > 0).length,
       networkRake,
-      commissionEarned: frozen ? 0 : Math.round(networkRake * AGENT_COMMISSION_RATE),
+      commissionEarned: frozen || !selfEarns ? 0 : Math.round(networkRake * AGENT_COMMISSION_RATE),
       frozen,
       currency: agent?.currency ?? "USD",
     };

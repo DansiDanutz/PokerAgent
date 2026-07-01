@@ -58,7 +58,7 @@ export function AppShell({
     <div className="mx-auto flex min-h-screen w-full max-w-7xl">
       {/* Desktop sidebar */}
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-white/5 px-4 py-6 lg:flex">
-        <Brand size="sm" />
+        <Brand size="sm" href="/dashboard" />
         <nav className="mt-8 flex flex-1 flex-col gap-1">
           {items.map((item) => (
             <NavLink
@@ -154,7 +154,7 @@ function TopBar({ user, unreadCount }: { user: User; unreadCount: number }) {
   return (
     <header className="sticky top-0 z-20 flex items-center justify-between border-b border-white/5 bg-felt-950/80 px-4 py-3 backdrop-blur sm:px-6">
       <div className="lg:hidden">
-        <Brand size="sm" />
+        <Brand size="sm" href="/dashboard" />
       </div>
       <div className="hidden lg:block">
         {isAdmin ? (

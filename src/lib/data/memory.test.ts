@@ -38,6 +38,23 @@ describe("MemoryRepository — network rollups", () => {
     expect(summary.networkRake).toBe(78_800); // 89_800 total minus the three L0 players' rake
     expect(summary.commissionEarned).toBe(15_760); // 20% of 78_800
   });
+
+  it("lets a non-agent player earn commission from their own network once they're VIP", async () => {
+    // u_alex (a plain player, KYC verified, 6h played) is VIP by seed default
+    // and has his own downline (liam, mia, noah) — anyone can refer friends,
+    // and earning just requires the referrer to be VIP themselves.
+    const summary = await repo.getNetworkSummary("u_alex");
+    expect(summary.commissionEarned).toBeGreaterThan(0);
+  });
+
+  it("blocks commission entirely when the referrer themselves isn't VIP, even with eligible downline rake", async () => {
+    // Drop Alex below VIP by zeroing his table hours (KYC stays verified, so
+    // he's still L1 — just not L2/VIP anymore).
+    await repo.setMemberTableHours("u_arjun", "u_alex", 0);
+    const summary = await repo.getNetworkSummary("u_alex");
+    expect(summary.networkRake).toBeGreaterThan(0); // mia/noah still generate rakeback-eligible rake
+    expect(summary.commissionEarned).toBe(0); // but Alex isn't VIP, so he doesn't earn it
+  });
 });
 
 describe("MemoryRepository — transfers", () => {
