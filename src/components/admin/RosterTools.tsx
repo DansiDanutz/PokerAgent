@@ -9,7 +9,11 @@ import type { AdminUserRow } from "./AdminUserManager";
 const SAMPLE = "username,full_name,email,upline_code,clubgg_id,balance\njdoe,John Doe,jdoe@mail.com,PAGENT-ARJUN12,9001234,100";
 
 function toCsv(users: AdminUserRow[]): string {
-  const header = "username,full_name,email,role,kyc_status,status,clubgg_id,upline,balance_usd,rake_usd";
+  // `upline` holds the agent's INVITE CODE (not the internal id) so the sheet
+  // round-trips through Import, which links members by invite code. `upline_name`
+  // is the agent's username, purely for human readability when reconciling.
+  const header =
+    "username,full_name,email,role,kyc_status,status,clubgg_id,upline,upline_name,balance_usd,rake_usd";
   const rows = users.map((u) =>
     [
       u.username,
@@ -19,7 +23,8 @@ function toCsv(users: AdminUserRow[]): string {
       u.kycStatus,
       u.status,
       u.clubggId ?? "",
-      u.uplineAgentId ?? "",
+      u.uplineReferralCode ?? "",
+      u.uplineUsername ?? "",
       (u.balance / 100).toFixed(2),
       (u.rake / 100).toFixed(2),
     ]

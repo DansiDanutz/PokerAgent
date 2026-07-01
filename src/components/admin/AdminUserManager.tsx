@@ -18,6 +18,10 @@ export interface AdminUserRow {
   rake: number;
   clubggId?: string;
   uplineAgentId: string | null;
+  /** The upline agent's invite code — the canonical, round-trippable link used by the CSV export/import. */
+  uplineReferralCode?: string;
+  /** The upline agent's username — human-readable label for the reconciliation sheet. */
+  uplineUsername?: string;
 }
 
 const inputCls =

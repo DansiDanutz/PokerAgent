@@ -29,19 +29,27 @@ export default async function AdminPage() {
   const userById = new Map(users.map((u) => [u.id, u]));
   const settlementHistory = settlements.filter((t) => t.status !== "pending");
   const kycQueue = users.filter((u) => u.kycStatus === "pending");
-  const adminRows: AdminUserRow[] = users.map((u) => ({
-    id: u.id,
-    fullName: u.fullName,
-    username: u.username,
-    role: u.role,
-    kycStatus: u.kycStatus,
-    status: u.status,
-    balance: u.balance,
-    currency: u.currency,
-    rake: u.stats.rakeGenerated,
-    clubggId: u.clubggId,
-    uplineAgentId: u.uplineAgentId,
-  }));
+  const adminRows: AdminUserRow[] = users.map((u) => {
+    const upline = u.uplineAgentId ? userById.get(u.uplineAgentId) : undefined;
+    return {
+      id: u.id,
+      fullName: u.fullName,
+      username: u.username,
+      role: u.role,
+      kycStatus: u.kycStatus,
+      status: u.status,
+      balance: u.balance,
+      currency: u.currency,
+      rake: u.stats.rakeGenerated,
+      clubggId: u.clubggId,
+      uplineAgentId: u.uplineAgentId,
+      // Resolve the upline to its invite code + username so the export is
+      // both human-readable and re-importable (the importer links members
+      // by the agent's invite code, not by internal id).
+      uplineReferralCode: upline?.referralCode,
+      uplineUsername: upline?.username,
+    };
+  });
 
   return (
     <div className="space-y-6">
