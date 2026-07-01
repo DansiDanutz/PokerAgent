@@ -10,18 +10,38 @@ export function GoogleButton() {
   const handleClick = async () => {
     setPending(true);
     setError(null);
+
+    // Open the tab synchronously, inside the click gesture, so browsers don't
+    // treat it as an unsolicited popup once we `await` below. Google also
+    // refuses to render its consent screen inside an iframe/sandboxed preview
+    // ("disallowed_useragent"), so a real top-level tab is the only thing
+    // that reliably works here regardless of what's hosting this page.
+    const authTab = window.open("", "_blank");
+
     try {
       const supabase = createBrowserSupabaseClient();
-      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+      const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: { redirectTo: `${window.location.origin}/auth/callback` },
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+          skipBrowserRedirect: true,
+        },
       });
-      if (oauthError) {
-        setError(oauthError.message);
+      if (oauthError || !data?.url) {
+        authTab?.close();
+        setError(oauthError?.message ?? "Could not start Google sign-in");
         setPending(false);
+        return;
       }
-      // On success the SDK redirects the browser to Google — nothing else to do here.
+      if (authTab) {
+        authTab.location.href = data.url;
+      } else {
+        // Popup blocked outright — fall back to redirecting this tab.
+        window.location.href = data.url;
+      }
+      setPending(false);
     } catch (e) {
+      authTab?.close();
       setError(e instanceof Error ? e.message : "Could not start Google sign-in");
       setPending(false);
     }
