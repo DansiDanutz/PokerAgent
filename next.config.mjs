@@ -3,13 +3,23 @@ import { dirname } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+// `next dev`'s Fast Refresh bundles are eval()-wrapped (webpack's dev
+// devtool), and HMR needs a WebSocket back to the dev server — both are
+// blocked by the strict production CSP, which silently kills all client-side
+// interactivity in `npm run dev` (confirmed live: hydration completes, but
+// every onClick/useState-driven update no-ops with zero console error, since
+// the browser reports CSP script-execution blocks via securitypolicyviolation,
+// not a normal console.error). Neither relaxation applies to the production
+// build, which doesn't use eval() and doesn't need HMR.
+const isDev = process.env.NODE_ENV !== "production";
+
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
   "font-src 'self' data:",
-  "connect-src 'self' https://*.supabase.co",
+  `connect-src 'self' https://*.supabase.co${isDev ? " ws://localhost:*" : ""}`,
   "frame-src 'none'",
   "frame-ancestors 'none'",
   "object-src 'none'",

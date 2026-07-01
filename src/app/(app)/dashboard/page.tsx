@@ -18,7 +18,8 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { getRepository } from "@/lib/data";
 import { Card, Badge, ProgressBar } from "@/components/ui";
 import { DashboardCard, type DashboardCardProps } from "@/components/dashboard/DashboardCard";
-import { MemberStatusBadge } from "@/components/MemberStatusBadge";
+import { PathToAgentInfo } from "@/components/dashboard/PathToAgentInfo";
+import { LevelBadge } from "@/components/dashboard/LevelBadge";
 import { ClubCard } from "@/components/clubgg/ClubCard";
 import { InviteCard } from "@/components/InviteCard";
 import {
@@ -172,7 +173,7 @@ export default async function DashboardPage() {
             agent — once someone already holds a staff role, show that
             instead of a now-meaningless player-progression badge. */}
         {user.role === "player" ? (
-          <MemberStatusBadge status={memberStatus(myInputs)} level={level.level} />
+          <LevelBadge status={memberStatus(myInputs)} level={level.level} />
         ) : (
           <Badge tone={user.role === "admin" ? "emerald" : "gold"}>
             {user.role === "admin" ? "Admin" : "Agent"}
@@ -198,6 +199,7 @@ export default async function DashboardPage() {
             <div className="flex items-center gap-2">
               <Target size={18} className="text-emerald-soft" />
               <h2 className="text-base font-semibold text-ink-100">Path to Agent</h2>
+              <PathToAgentInfo />
             </div>
             {user.agentRequest === "pending" ? (
               <span className="rounded-full bg-[var(--color-warning)]/15 px-3 py-1 text-xs font-medium text-[var(--color-warning)]">

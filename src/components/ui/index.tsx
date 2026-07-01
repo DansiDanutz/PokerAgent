@@ -1,6 +1,7 @@
 import { clsx } from "clsx";
 import type { ReactNode } from "react";
 import { initials } from "@/lib/format";
+export { Modal } from "./Modal";
 
 export function Card({
   children,
