@@ -1,4 +1,5 @@
 import { Users, DollarSign, Megaphone, ShieldAlert, Info } from "lucide-react";
+import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getRepository } from "@/lib/data";
 import { Card, SectionTitle, Badge } from "@/components/ui";
@@ -15,7 +16,8 @@ const KIND_META: Record<NotificationKind, { icon: typeof Users; color: string; b
 };
 
 export default async function NotificationsPage() {
-  const user = (await getCurrentUser())!;
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
   const notifications = await getRepository().listNotifications(user.id);
   const unread = notifications.filter((n) => !n.read).length;
 

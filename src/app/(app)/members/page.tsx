@@ -12,7 +12,8 @@ import { isDormant, daysSinceActive } from "@/lib/activity";
 import { formatMoney, formatNumber, formatPercent, formatDate } from "@/lib/format";
 
 export default async function MembersPage() {
-  const user = (await getCurrentUser())!;
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
   if (user.role === "player") redirect("/dashboard");
 
   const repo = getRepository();

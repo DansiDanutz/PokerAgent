@@ -10,7 +10,8 @@ import { flattenNetwork } from "@/lib/network";
 import { formatMoney, formatNumber, formatPercent } from "@/lib/format";
 
 export default async function NetworkPage() {
-  const user = (await getCurrentUser())!;
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
   const repo = getRepository();
   const [tree, summary] = await Promise.all([
     repo.getNetworkTree(user.id),

@@ -10,6 +10,7 @@ import {
   UserX,
 } from "lucide-react";
 import { Spade } from "lucide-react";
+import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
 import { CLUB } from "@/lib/clubgg";
 import { Card, Stat, SectionTitle, Badge, Avatar, ProgressBar } from "@/components/ui";
@@ -27,7 +28,8 @@ const KYC_TONE: Record<KycStatus, string> = {
 };
 
 export default async function ProfilePage() {
-  const user = (await getCurrentUser())!;
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
   const canSwitchAgent =
     !!user.uplineAgentId && isDormant(user.lastActiveAt, new Date(), user.createdAt);
   const inactiveDays = daysSinceActive(user.lastActiveAt, new Date(), user.createdAt);

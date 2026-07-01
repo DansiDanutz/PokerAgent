@@ -12,7 +12,8 @@ import { AdminUserManager, type AdminUserRow } from "@/components/admin/AdminUse
 import { RosterTools } from "@/components/admin/RosterTools";
 import { formatMoney, formatNumber, formatDate } from "@/lib/format";
 export default async function AdminPage() {
-  const user = (await getCurrentUser())!;
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
   if (user.role !== "admin") redirect("/dashboard");
 
   const repo = getRepository();

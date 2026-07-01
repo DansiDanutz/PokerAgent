@@ -1,4 +1,5 @@
 import { Info } from "lucide-react";
+import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getRepository } from "@/lib/data";
 import { CLUB } from "@/lib/clubgg";
@@ -7,7 +8,8 @@ import { PromoteHub } from "@/components/promote/PromoteHub";
 import { currentLevel, canEarnReferrals, VIP_TABLE_HOURS } from "@/lib/levels";
 
 export default async function PromotePage() {
-  const user = (await getCurrentUser())!;
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
   const referralLink = `https://pokeragent.app/r/${user.referralCode}`;
 
   // Everyone can refer friends — but earning commission from your own

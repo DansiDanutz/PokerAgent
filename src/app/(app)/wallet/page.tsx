@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getRepository } from "@/lib/data";
 import { Card, Stat, SectionTitle, Badge } from "@/components/ui";
@@ -6,7 +7,8 @@ import { TX_META } from "@/components/wallet/txMeta";
 import { formatMoney, formatDate } from "@/lib/format";
 
 export default async function WalletPage() {
-  const user = (await getCurrentUser())!;
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
   const transactions = await getRepository().listTransactions(user.id);
 
   const pending = transactions

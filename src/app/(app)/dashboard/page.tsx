@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -33,7 +34,8 @@ import { requestAgentStatus } from "@/app/actions";
 import { formatMoney, formatMoneyCompact, formatNumber, formatPercent } from "@/lib/format";
 
 export default async function DashboardPage() {
-  const user = (await getCurrentUser())!;
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
   const repo = getRepository();
   const [tree, summary, notifications, overview] = await Promise.all([
     repo.getNetworkTree(user.id),
