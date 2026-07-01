@@ -120,6 +120,14 @@ placeholder shown on the Join-Club card and admin settings.
 Next.js 15 (App Router) · React 19 · TypeScript · Tailwind CSS v4 · Recharts ·
 Vitest · Supabase (optional).
 
+## 🔒 Security
+
+Password hashing (scrypt), signed sessions, rate-limited auth, server-side
+authorization on every mutation, atomic Postgres functions for all
+balance-affecting operations, and locked-down database access — see
+[SECURITY.md](SECURITY.md) for the full architecture and how to report a
+vulnerability.
+
 ## 🎨 Design
 
 "Luxury felt" — emerald-green table felt, antique-gold accents, deep near-black
@@ -129,8 +137,8 @@ mockups are in [`docs/mockups`](docs/mockups).
 ## 🗺️ Roadmap
 
 - **AI Poker Coach** (live hand reader / real-time table assistant from the mockups) — a separate ML milestone.
-- Real Supabase auth wiring (`SupabaseRepository`).
 - Agent commission payout automation.
+- CI pipeline running `typecheck` / `test` / `build` on every pull request.
 
 ## ⚠️ Disclaimer
 
