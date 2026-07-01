@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
 
@@ -24,9 +25,15 @@ export function Modal({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
+  // Not open → render nothing (also means the portal branch below never runs
+  // during SSR / initial hydration, where `document` doesn't exist).
   if (!open) return null;
 
-  return (
+  // Portal to <body> so the overlay/dialog is never nested inside whatever
+  // element holds the trigger button (e.g. a <p>) — otherwise the dialog's
+  // block content (<p>, <ul>, …) inside a <p> is invalid HTML and throws a
+  // hydration error.
+  return createPortal(
     <div
       className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
       onClick={onClose}
@@ -53,6 +60,7 @@ export function Modal({
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

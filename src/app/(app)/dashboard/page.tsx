@@ -19,6 +19,7 @@ import { getRepository } from "@/lib/data";
 import { Card, Badge, ProgressBar } from "@/components/ui";
 import { DashboardCard, type DashboardCardProps } from "@/components/dashboard/DashboardCard";
 import { PathToAgentInfo } from "@/components/dashboard/PathToAgentInfo";
+import { RakebackInfo } from "@/components/dashboard/RakebackInfo";
 import { LevelBadge } from "@/components/dashboard/LevelBadge";
 import { ClubCard } from "@/components/clubgg/ClubCard";
 import { InviteCard } from "@/components/InviteCard";
@@ -248,9 +249,12 @@ export default async function DashboardPage() {
 
           {/* Current rakeback rate + next tier — same VIP count, referral tier ladder */}
           <div className="mt-4 rounded-xl bg-white/[0.03] p-3 ring-1 ring-inset ring-white/5">
-            <p className="text-xs text-ink-300">
-              You currently earn <span className="font-semibold gold-text">{formatPercent(summary.commissionRate, 0)}</span> rakeback
-              from your network.
+            <p className="flex items-center gap-1.5 text-xs text-ink-300">
+              <span>
+                You currently earn <span className="font-semibold gold-text">{formatPercent(summary.commissionRate, 0)}</span> rakeback
+                from your network.
+              </span>
+              <RakebackInfo vipNetworkCount={vipNetworkCount} />
             </p>
             {nextTier && (
               <p className="mt-1 text-[11px] text-ink-500">
