@@ -10,6 +10,7 @@ export interface AdminUserRow {
   id: string;
   fullName: string;
   username: string;
+  email: string;
   role: "player" | "agent" | "admin";
   kycStatus: string;
   status: string;

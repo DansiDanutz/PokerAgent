@@ -47,8 +47,8 @@ export const LEVELS: PlayerLevel[] = [
     perk: "VIP rakeback & freerolls",
   },
   // --- Configurable higher tiers (placeholder thresholds) -------------------
-  { level: 3, name: "Level 3 · Affiliate", requires: { kyc: true, minTableHours: VIP_TABLE_HOURS, minDirectReferrals: 3 }, perk: "Referral commission" },
-  { level: 4, name: "Level 4 · Super Affiliate", requires: { kyc: true, minTableHours: 20, minDirectReferrals: 10 }, perk: "Higher commission tier" },
+  { level: 3, name: "Affiliate", requires: { kyc: true, minTableHours: VIP_TABLE_HOURS, minDirectReferrals: 3 }, perk: "Referral commission" },
+  { level: 4, name: "Super Affiliate", requires: { kyc: true, minTableHours: 20, minDirectReferrals: 10 }, perk: "Higher commission tier" },
 ];
 
 export interface LevelInputs {

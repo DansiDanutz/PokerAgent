@@ -35,6 +35,7 @@ export default async function AdminPage() {
       id: u.id,
       fullName: u.fullName,
       username: u.username,
+      email: u.email,
       role: u.role,
       kycStatus: u.kycStatus,
       status: u.status,
@@ -98,13 +99,14 @@ export default async function AdminPage() {
             {pending.map((tx) => {
               const meta = TX_META[tx.type];
               const Icon = meta.icon;
+              const member = userById.get(tx.userId);
               return (
                 <li key={tx.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
                   <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${meta.bg}`}>
                     <Icon size={16} className={meta.color} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm text-ink-100">{meta.label} · <span className="text-ink-400">{tx.userId}</span></p>
+                    <p className="truncate text-sm text-ink-100">{meta.label} · <span className="text-ink-400">{member ? `${member.fullName} (@${member.username})` : tx.userId}</span></p>
                     <p className="truncate text-xs text-ink-500">{formatDate(tx.createdAt)}{tx.note ? ` · ${tx.note}` : ""}</p>
                   </div>
                   <p className={`shrink-0 text-sm font-semibold ${tx.amount >= 0 ? "text-emerald-soft" : "text-[var(--color-danger)]"}`}>

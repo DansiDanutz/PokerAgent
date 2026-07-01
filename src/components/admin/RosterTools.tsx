@@ -18,7 +18,7 @@ function toCsv(users: AdminUserRow[]): string {
     [
       u.username,
       u.fullName,
-      u.username + "@pokeragent.app",
+      u.email,
       u.role,
       u.kycStatus,
       u.status,
