@@ -28,6 +28,12 @@ export interface ClubConfig {
   androidAppUrl: string;
   webUrl: string;
   rakeSplit: RakeSplit;
+  /**
+   * A player's PERSONAL rakeback rate (0..1) on their own generated rake —
+   * paid to KYC-eligible (L1+) players when a stats period is imported. The
+   * single source of truth for the distribution engine's player rebate.
+   */
+  playerRakebackRate: number;
 }
 
 const env = (key: string, fallback: string): string =>
@@ -51,6 +57,7 @@ export const CLUB: ClubConfig = {
     club: Number(env("NEXT_PUBLIC_CLUBGG_RAKE_CLUB", "0.3")),
     agent: Number(env("NEXT_PUBLIC_CLUBGG_RAKE_AGENT", "0.2")),
   },
+  playerRakebackRate: Number(env("NEXT_PUBLIC_CLUBGG_PLAYER_RAKEBACK", "0.1")),
 };
 
 /** True when a real numeric Club ID is set. */
@@ -61,4 +68,28 @@ export function clubIdConfigured(): boolean {
 /** Apply the agent's rake share to an amount of rake (minor units). */
 export function agentRakeShare(rakeMinor: number): number {
   return Math.round(rakeMinor * CLUB.rakeSplit.agent);
+}
+
+/**
+ * Coherence check for the configured economics, surfaced on the admin panel so
+ * a misconfigured env var (e.g. a rate typed as `10` instead of `0.1`, or
+ * shares that add past 100%) is caught before it distorts a distribution.
+ */
+export function economicsIssues(): string[] {
+  const issues: string[] = [];
+  const { union, club, agent } = CLUB.rakeSplit;
+  const rates: Array<[string, number]> = [
+    ["Union share", union],
+    ["Club share", club],
+    ["Agent share", agent],
+    ["Player rakeback", CLUB.playerRakebackRate],
+  ];
+  for (const [label, r] of rates) {
+    if (!Number.isFinite(r) || r < 0 || r > 1) issues.push(`${label} must be a fraction between 0 and 1 (got ${r}).`);
+  }
+  const chain = union + club + agent;
+  if (Number.isFinite(chain) && chain > 1.0001) {
+    issues.push(`Rake chain shares add up to ${(chain * 100).toFixed(0)}% — union + club + agent can't exceed 100%.`);
+  }
+  return issues;
 }

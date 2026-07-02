@@ -172,14 +172,10 @@ export const AGENT_RAKEBACK_TIERS: RakebackTier[] = [
 
 export const AGENT_MIN_MONTHLY_HOURS = 20;
 
-/**
- * A player's PERSONAL rakeback rate — the share of their own generated rake
- * returned to them as a rebate when a stats period is imported. This is
- * distinct from the referral/agent tiers above (which pay an UPLINE a share of
- * their DOWNLINE's rake); this is what the player at the table gets back on
- * their own play. Only paid to rakeback-eligible (KYC L1+) players. Tune here.
- */
-export const PLAYER_RAKEBACK_RATE = 0.1;
+// A player's PERSONAL rakeback rate now lives with the rest of the club
+// economics config (env-overridable) as `CLUB.playerRakebackRate` in
+// `src/lib/clubgg.ts` — not here, so all rake economics are configured in one
+// place. The distribution engine reads it from there.
 
 /** The highest tier whose `minVip` the count meets; 0 if below every tier. */
 export function rakebackRateForTier(tiers: RakebackTier[], vipCount: number): number {

@@ -42,8 +42,8 @@ import {
   REFERRAL_RAKEBACK_TIERS,
   AGENT_RAKEBACK_TIERS,
   AGENT_MIN_MONTHLY_HOURS,
-  PLAYER_RAKEBACK_RATE,
 } from "@/lib/levels";
+import { CLUB } from "@/lib/clubgg";
 import { flattenNetwork, flattenOwnBusiness } from "@/lib/network";
 import { isDormant } from "@/lib/activity";
 import { formatMoney } from "@/lib/format";
@@ -758,7 +758,7 @@ export class MemoryRepository implements Repository {
       rateByAgent.set(u.id, (await this.getNetworkSummary(u.id)).commissionRate);
     }
     return planDistribution(rows, {
-      playerRakebackRate: PLAYER_RAKEBACK_RATE,
+      playerRakebackRate: CLUB.playerRakebackRate,
       membersByClubId,
       rakebackEligible: (id) => eligibleIds.has(id),
       ownerAgentOf: (id) => this.ownerAgentOf(id)?.id ?? null,
