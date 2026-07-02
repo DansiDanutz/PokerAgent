@@ -855,6 +855,7 @@ export class SupabaseRepository implements Repository {
     rateByAgent: Map<string, number>;
     nameByAgent: Map<string, string>;
     agentChainOf: (userId: string) => string[];
+    cashflowOwnerOf: (userId: string) => string | null;
   }> {
     const users = await this.allProfiles();
     const byId = new Map(users.map((u) => [u.id, u]));
@@ -890,7 +891,15 @@ export class SupabaseRepository implements Repository {
       }
       return chain;
     };
-    return { users, byId, eligibleIds, rateByAgent, nameByAgent, agentChainOf };
+    // An agent owns his own cash flow; a player's is owned by his nearest
+    // agent; null when only admin sits above (house absorbs game P/L).
+    const cashflowOwnerOf = (userId: string): string | null => {
+      const u = byId.get(userId);
+      if (!u) return null;
+      if (u.role === "agent") return u.id;
+      return agentChainOf(userId)[0] ?? null;
+    };
+    return { users, byId, eligibleIds, rateByAgent, nameByAgent, agentChainOf, cashflowOwnerOf };
   }
 
   /** Build the distribution plan from CURRENT state (all reads, no mutation). */
@@ -908,6 +917,7 @@ export class SupabaseRepository implements Repository {
       agentChainOf: ctx.agentChainOf,
       agentRate: (id) => ctx.rateByAgent.get(id) ?? 0,
       agentUsername: (id) => ctx.nameByAgent.get(id) ?? id,
+      cashflowOwnerOf: ctx.cashflowOwnerOf,
     });
   }
 
@@ -949,6 +959,7 @@ export class SupabaseRepository implements Repository {
       agentChainOf: cappedChain,
       agentRate: (id) => ctx.rateByAgent.get(id) ?? 0,
       agentUsername: (id) => ctx.nameByAgent.get(id) ?? id,
+      cashflowOwnerOf: ctx.cashflowOwnerOf,
     });
   }
 
@@ -1000,6 +1011,58 @@ export class SupabaseRepository implements Repository {
         userId: agent.id, kind: "money", title: "Rake settlement paid",
         body: `You earned ${formatMoney(st.commission, agent.currency)} override commission from your network's rake.`,
       });
+    }
+
+    // 3) Game-money settlement: chips that moved BETWEEN networks at the
+    // tables become real admin↔agent money. Winning networks get paid (so the
+    // agent can pay his winners); losing networks get collected from. A
+    // collection that the agent's balance + admin credit line can't absorb is
+    // recorded as a PENDING debit (a tracked receivable, approved from the
+    // admin queue once the agent deposits) — the DB balance-floor CHECK is the
+    // concurrent-race backstop behind this pre-check.
+    for (const g of plan.gameSettlements) {
+      const agent = await this.profile(g.agentId);
+      if (!agent) continue;
+      if (g.networkPnl > 0) {
+        await this.insertTx({
+          id: this.newId("t"), userId: agent.id, type: "adjustment", amount: g.networkPnl,
+          currency: agent.currency, status: "completed",
+          note: "Game settlement · network winnings payout", createdAt: ts, processedBy: adminId,
+        });
+        await this.adjustBalance(agent.id, g.networkPnl);
+        await this.addNotification({
+          userId: agent.id, kind: "money", title: "Game settlement received",
+          body: `${formatMoney(g.networkPnl, agent.currency)} credited — your network won this period. Pay out your winning players.`,
+        });
+      } else {
+        const debit = -g.networkPnl;
+        const floor = -(agent.creditLimit ?? 0);
+        if (agent.balance - debit >= floor) {
+          await this.insertTx({
+            id: this.newId("t"), userId: agent.id, type: "adjustment", amount: -debit,
+            currency: agent.currency, status: "completed",
+            note: "Game settlement · network losses collection", createdAt: ts, processedBy: adminId,
+          });
+          await this.adjustBalance(agent.id, -debit);
+          await this.addNotification({
+            userId: agent.id, kind: "money", title: "Game settlement collected",
+            body: `${formatMoney(debit, agent.currency)} collected — your network lost this period. Collect from your losing players.`,
+          });
+        } else {
+          await this.insertTx({
+            id: this.newId("t"), userId: agent.id, type: "adjustment", amount: -debit,
+            currency: agent.currency, status: "pending",
+            note: "Game settlement · network losses — awaiting agent deposit", createdAt: ts, processedBy: adminId,
+          });
+          await this.addNotification({
+            userId: agent.id, kind: "money", title: "Deposit required — game settlement",
+            body: `Your network lost ${formatMoney(debit, agent.currency)} this period, more than your balance and credit line cover. Deposit funds so the admin can settle it.`,
+          });
+          plan.warnings.push(
+            `@${g.username} owes ${formatMoney(debit, agent.currency)} but balance + credit line can't cover it — recorded as a PENDING collection in the approvals queue.`,
+          );
+        }
+      }
     }
 
     return plan;

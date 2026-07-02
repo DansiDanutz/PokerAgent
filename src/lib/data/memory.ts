@@ -773,6 +773,15 @@ export class MemoryRepository implements Repository {
     return chain;
   }
 
+  /** Who owns a user's cash flow: an agent owns his own; a player's is owned
+   *  by his nearest agent; null when only admin sits above (house absorbs). */
+  private cashflowOwnerOf(userId: string): string | null {
+    const u = this.users.get(userId);
+    if (!u) return null;
+    if (u.role === "agent") return u.id;
+    return this.agentChainOf(userId)[0] ?? null;
+  }
+
   /** Compute the full distribution plan from CURRENT state, mutating nothing. */
   /** Per-agent effective rate + name + club-wide rakeback eligibility, shared
    *  by the import and the estimate so both run identical economics. */
@@ -808,6 +817,7 @@ export class MemoryRepository implements Repository {
       agentChainOf: (id) => this.agentChainOf(id),
       agentRate: (id) => rateByAgent.get(id) ?? 0,
       agentUsername: (id) => nameByAgent.get(id) ?? id,
+      cashflowOwnerOf: (id) => this.cashflowOwnerOf(id),
     });
   }
 
@@ -848,6 +858,7 @@ export class MemoryRepository implements Repository {
         agentChainOf: cappedChain,
         agentRate: (id) => rateByAgent.get(id) ?? 0,
         agentUsername: (id) => nameByAgent.get(id) ?? id,
+        cashflowOwnerOf: (id) => this.cashflowOwnerOf(id),
       }),
     );
   }
@@ -904,6 +915,58 @@ export class MemoryRepository implements Repository {
         userId: agent.id, kind: "money", title: "Rake settlement paid",
         body: `You earned ${formatMoney(s.commission, agent.currency)} override commission from your network's rake.`,
       });
+    }
+
+    // Game-money settlement: chips that moved BETWEEN networks at the tables
+    // become real admin↔agent money. Winning networks get paid (so the agent
+    // can pay his winners); losing networks get collected from (the agent
+    // collects from his losers — his cash flow to manage). A collection that
+    // the agent's balance + admin credit line can't absorb is recorded as a
+    // PENDING debit (a tracked receivable) instead of silently failing —
+    // admin approves it from the queue once the agent deposits.
+    for (const g of plan.gameSettlements) {
+      const agent = this.users.get(g.agentId);
+      if (!agent) continue;
+      if (g.networkPnl > 0) {
+        agent.balance += g.networkPnl;
+        this.transactions.push({
+          id: this.id("t"), userId: agent.id, type: "adjustment",
+          amount: g.networkPnl, currency: agent.currency, status: "completed",
+          note: "Game settlement · network winnings payout", createdAt: ts, processedBy: adminId,
+        });
+        await this.addNotification({
+          userId: agent.id, kind: "money", title: "Game settlement received",
+          body: `${formatMoney(g.networkPnl, agent.currency)} credited — your network won this period. Pay out your winning players.`,
+        });
+      } else {
+        const debit = -g.networkPnl;
+        const floor = -(agent.creditLimit ?? 0);
+        if (agent.balance - debit >= floor) {
+          agent.balance -= debit;
+          this.transactions.push({
+            id: this.id("t"), userId: agent.id, type: "adjustment",
+            amount: -debit, currency: agent.currency, status: "completed",
+            note: "Game settlement · network losses collection", createdAt: ts, processedBy: adminId,
+          });
+          await this.addNotification({
+            userId: agent.id, kind: "money", title: "Game settlement collected",
+            body: `${formatMoney(debit, agent.currency)} collected — your network lost this period. Collect from your losing players.`,
+          });
+        } else {
+          this.transactions.push({
+            id: this.id("t"), userId: agent.id, type: "adjustment",
+            amount: -debit, currency: agent.currency, status: "pending",
+            note: "Game settlement · network losses — awaiting agent deposit", createdAt: ts, processedBy: adminId,
+          });
+          await this.addNotification({
+            userId: agent.id, kind: "money", title: "Deposit required — game settlement",
+            body: `Your network lost ${formatMoney(debit, agent.currency)} this period, more than your balance and credit line cover. Deposit funds so the admin can settle it.`,
+          });
+          plan.warnings.push(
+            `@${g.username} owes ${formatMoney(debit, agent.currency)} but balance + credit line can't cover it — recorded as a PENDING collection in the approvals queue.`,
+          );
+        }
+      }
     }
 
     return clone(plan);

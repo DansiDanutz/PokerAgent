@@ -58,6 +58,25 @@ export interface AgentSettlementLine {
   commission: number;
 }
 
+/**
+ * One agent's GAME-MONEY settlement for the period. The club is a zero-sum
+ * chip pool across agent networks: when one network's players win chips from
+ * another network's players at the tables, real money must follow between
+ * those agents THROUGH the admin — the winning agent needs cash to pay his
+ * winners, funded by what the admin collects from the losing agent (who in
+ * turn collects from his losing players; that's his cash flow to manage).
+ */
+export interface GameSettlementLine {
+  agentId: string;
+  username: string;
+  /**
+   * Net P/L of the members whose cash flow this agent owns (cents, signed).
+   * Positive → his network WON → admin PAYS the agent this amount.
+   * Negative → his network LOST → admin COLLECTS this amount from the agent.
+   */
+  networkPnl: number;
+}
+
 export interface DistributionTotals {
   members: number;
   matched: number;
@@ -71,12 +90,18 @@ export interface DistributionTotals {
   commission: number;
   /** Total kept by the house (cents). Invariant: player + commission + admin === rake. */
   adminKept: number;
+  /** Game money: total admin must PAY to winning-network agents (cents, >= 0). */
+  payToAgents: number;
+  /** Game money: total admin must COLLECT from losing-network agents (cents, >= 0). */
+  collectFromAgents: number;
 }
 
 /** The full, computed plan for one import — the contract preview & apply share. */
 export interface StatsImportPlan {
   lines: StatsImportLine[];
   settlements: AgentSettlementLine[];
+  /** Cross-network game-money obligations between admin and each agent. */
+  gameSettlements: GameSettlementLine[];
   warnings: string[];
   totals: DistributionTotals;
 }
@@ -128,6 +153,12 @@ export interface DistributionContext {
   /** The agent's effective commission rate (0 when frozen / below tier). */
   agentRate: (agentId: string) => number;
   agentUsername: (agentId: string) => string;
+  /**
+   * Who owns this user's CASH FLOW — an agent themselves, else their nearest
+   * agent ancestor, or null when the user sits directly under admin (their
+   * game P/L settles with the house implicitly, no agent obligation).
+   */
+  cashflowOwnerOf: (userId: string) => string | null;
 }
 
 function baseLine(row: ClubggMemberStats, member: DistributionMember | undefined, eligible: boolean): StatsImportLine {
@@ -197,6 +228,24 @@ export function planDistribution(rows: ClubggMemberStats[], ctx: DistributionCon
     .filter((s) => s.commission > 0)
     .sort((a, b) => b.commission - a.commission);
 
+  // Game-money settlement: net each matched member's table P/L onto their
+  // cash-flow owner. Unlike rakeback this deliberately IGNORES KYC
+  // eligibility — chips that moved between networks at the tables are a real
+  // money obligation between the agents and the admin regardless of a
+  // player's verification state. (Unmatched rows can't be attributed and are
+  // already warned about above.)
+  const gamePnlByAgent = new Map<string, number>();
+  for (const line of lines) {
+    if (!line.matched || !line.userId || line.netProfit === 0) continue;
+    const ownerId = ctx.cashflowOwnerOf(line.userId);
+    if (!ownerId) continue; // sits directly under admin — the house absorbs it
+    gamePnlByAgent.set(ownerId, (gamePnlByAgent.get(ownerId) ?? 0) + line.netProfit);
+  }
+  const gameSettlements: GameSettlementLine[] = [...gamePnlByAgent.entries()]
+    .filter(([, pnl]) => pnl !== 0)
+    .map(([agentId, networkPnl]) => ({ agentId, username: ctx.agentUsername(agentId), networkPnl }))
+    .sort((a, b) => Math.abs(b.networkPnl) - Math.abs(a.networkPnl));
+
   const matched = lines.filter((l) => l.matched).length;
   const totals: DistributionTotals = {
     members: lines.length,
@@ -207,9 +256,11 @@ export function planDistribution(rows: ClubggMemberStats[], ctx: DistributionCon
     playerRakeback: lines.reduce((s, l) => s + l.playerRakeback, 0),
     commission: settlements.reduce((s, a) => s + a.commission, 0),
     adminKept,
+    payToAgents: gameSettlements.reduce((s, g) => s + Math.max(0, g.networkPnl), 0),
+    collectFromAgents: gameSettlements.reduce((s, g) => s + Math.max(0, -g.networkPnl), 0),
   };
 
-  return { lines, settlements, warnings, totals };
+  return { lines, settlements, gameSettlements, warnings, totals };
 }
 
 /** Tiny inline money formatter for warning text (avoids a currency dependency here). */

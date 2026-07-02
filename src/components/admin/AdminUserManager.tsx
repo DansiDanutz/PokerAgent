@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { X, Search, BadgeCheck, Ban, Shield, Coins, ChevronRight } from "lucide-react";
+import { X, Search, BadgeCheck, Ban, Shield, Coins, ChevronRight, Banknote } from "lucide-react";
 import { Card, Button, Avatar, Badge } from "@/components/ui";
-import { setKyc, setAccountStatus, setUserRole, adminAdjustBalance } from "@/app/actions";
+import { setKyc, setAccountStatus, setUserRole, adminAdjustBalance, setPlayerCreditLimit } from "@/app/actions";
 import { formatMoney } from "@/lib/format";
 
 export interface AdminUserRow {
@@ -17,6 +17,8 @@ export interface AdminUserRow {
   balance: number;
   currency: string;
   rake: number;
+  /** For agents: the admin-granted credit line (how far negative their balance may go). */
+  creditLimit: number;
   clubggId?: string;
   uplineAgentId: string | null;
   /** The upline agent's invite code — the canonical, round-trippable link used by the CSV export/import. */
@@ -215,6 +217,30 @@ function AdminDrawer({ user, onClose }: { user: AdminUserRow; onClose: () => voi
             <p className="text-[11px] text-ink-500">Positive credits, negative debits the balance.</p>
           </form>
         </Section>
+
+        {/* Admin credit line — agents only: the cash-flow facility that lets
+            game-money collections dip the agent's balance below zero. */}
+        {user.role === "agent" && (
+          <Section icon={<Banknote size={15} />} title={`Credit line — ${formatMoney(user.creditLimit, user.currency)}`}>
+            <form action={setPlayerCreditLimit} className="space-y-2">
+              <input type="hidden" name="playerId" value={user.id} />
+              <input
+                name="creditLimit"
+                type="number"
+                min="0"
+                step="0.01"
+                defaultValue={(user.creditLimit / 100).toFixed(2)}
+                className={inputCls}
+                required
+              />
+              <Button type="submit" variant="ghost" className="w-full">Set credit line</Button>
+              <p className="text-[11px] text-ink-500">
+                How far this agent&apos;s balance may go negative when game settlements are collected —
+                a cash-flow facility, not spending money. Ask them to deposit to reduce reliance on it.
+              </p>
+            </form>
+          </Section>
+        )}
       </div>
     </div>
   );

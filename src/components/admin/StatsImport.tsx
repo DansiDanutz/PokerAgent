@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useRef, useState } from "react";
-import { FileSpreadsheet, Eye, CheckCircle2, AlertTriangle, Coins, Users } from "lucide-react";
+import { FileSpreadsheet, Eye, CheckCircle2, AlertTriangle, Coins, Users, ArrowLeftRight } from "lucide-react";
 import { Card, SectionTitle, Button, Stat, Badge } from "@/components/ui";
 import { RakeSplitBar } from "@/components/clubgg/RakeSplitBar";
 import { runStatsImport, type StatsImportState } from "@/app/actions";
@@ -185,6 +185,44 @@ function PlanView({
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* Game money — cross-network chip results become admin↔agent cash */}
+      {plan.gameSettlements.length > 0 && (
+        <div>
+          <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-ink-300">
+            <ArrowLeftRight size={13} /> Game money settlement
+            <span className="font-normal text-ink-500">— chips that moved between networks</span>
+          </p>
+          <ul className="divide-y divide-white/5 rounded-xl ring-1 ring-inset ring-white/5">
+            {plan.gameSettlements.map((g) => {
+              const winning = g.networkPnl > 0;
+              return (
+                <li key={g.agentId} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-xs">
+                  <Badge tone={winning ? "emerald" : "warning"}>{winning ? "PAY" : "COLLECT"}</Badge>
+                  <span className="min-w-0 flex-1 text-ink-100">@{g.username}</span>
+                  <span className="text-[11px] text-ink-500">
+                    network {winning ? "won" : "lost"} this period
+                  </span>
+                  <span className={`tabular-nums font-semibold ${winning ? "text-emerald-soft" : "text-[var(--color-warning)]"}`}>
+                    {formatMoney(Math.abs(g.networkPnl), currency)}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-ink-500">
+            <span>
+              Pay out: <span className="font-medium text-emerald-soft">{formatMoney(plan.totals.payToAgents, currency)}</span>
+            </span>
+            <span>
+              Collect: <span className="font-medium text-[var(--color-warning)]">{formatMoney(plan.totals.collectFromAgents, currency)}</span>
+            </span>
+            <span>
+              Winning agents get paid so they can pay their players; losing agents collect from theirs.
+            </span>
+          </div>
         </div>
       )}
 

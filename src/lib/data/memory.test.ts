@@ -807,3 +807,68 @@ describe("MemoryRepository — ClubGG stats import", () => {
     expect(plan.totals.playerRakeback + plan.totals.commission + plan.totals.adminKept).toBe(plan.totals.rake);
   });
 });
+
+describe("MemoryRepository — cross-network game-money settlement", () => {
+  let repo: MemoryRepository;
+  let users: Map<string, User>;
+  beforeEach(() => {
+    repo = new MemoryRepository();
+    users = (repo as unknown as { users: Map<string, User> }).users;
+  });
+
+  // alex (8842014) is arjun's direct player; diego (8842041) is marco's.
+  const pnlRow = (clubggId: string, profitLoss: number) => ({
+    clubggId, handsPlayed: 100, rake: 0, buyIn: 0, cashOut: 0, profitLoss, hours: 0,
+  });
+
+  it("pays a winning network's agent so he can pay his winners", async () => {
+    const before = users.get("u_arjun")!.balance;
+    const plan = await repo.applyStatsImport("u_admin", [pnlRow("8842014", 50_000)]);
+    expect(plan.gameSettlements).toEqual([
+      { agentId: "u_arjun", username: "arjunmehta", networkPnl: 50_000 },
+    ]);
+    expect(users.get("u_arjun")!.balance).toBe(before + 50_000);
+    const txs = await repo.listTransactions("u_arjun");
+    expect(txs.some((t) => /winnings payout/.test(t.note ?? "") && t.amount === 50_000 && t.status === "completed")).toBe(true);
+  });
+
+  it("collects from a losing network's agent when his balance covers it", async () => {
+    const before = users.get("u_arjun")!.balance; // 825_000
+    await repo.applyStatsImport("u_admin", [pnlRow("8842014", -50_000)]);
+    expect(users.get("u_arjun")!.balance).toBe(before - 50_000);
+    const txs = await repo.listTransactions("u_arjun");
+    expect(txs.some((t) => /losses collection/.test(t.note ?? "") && t.amount === -50_000 && t.status === "completed")).toBe(true);
+  });
+
+  it("lets a collection dip into the admin credit line", async () => {
+    const arjun = users.get("u_arjun")!;
+    arjun.balance = 10_000;
+    arjun.creditLimit = 50_000; // admin-granted cash-flow facility
+    await repo.applyStatsImport("u_admin", [pnlRow("8842014", -40_000)]);
+    expect(users.get("u_arjun")!.balance).toBe(-30_000); // inside the line
+  });
+
+  it("records an uncoverable collection as PENDING and warns, instead of failing", async () => {
+    const arjun = users.get("u_arjun")!;
+    arjun.balance = 10_000;
+    arjun.creditLimit = 20_000; // floor -20_000; a 50_000 debit would land at -40_000
+    const plan = await repo.applyStatsImport("u_admin", [pnlRow("8842014", -50_000)]);
+    expect(users.get("u_arjun")!.balance).toBe(10_000); // untouched
+    const pending = await repo.listPendingTransactions();
+    expect(pending.some((t) => t.userId === "u_arjun" && /awaiting agent deposit/.test(t.note ?? "") && t.amount === -50_000)).toBe(true);
+    expect(plan.warnings.join(" ")).toMatch(/can't cover/i);
+  });
+
+  it("routes a nested player's P/L to his sub-agent and zero-sums across networks", async () => {
+    const marcoBefore = users.get("u_marco")!.balance;
+    const arjunBefore = users.get("u_arjun")!.balance;
+    // diego (marco's network) loses 30_000 to alex (arjun's network).
+    const plan = await repo.applyStatsImport("u_admin", [
+      pnlRow("8842041", -30_000),
+      pnlRow("8842014", 30_000),
+    ]);
+    expect(users.get("u_marco")!.balance).toBe(marcoBefore - 30_000);
+    expect(users.get("u_arjun")!.balance).toBe(arjunBefore + 30_000);
+    expect(plan.totals.payToAgents).toBe(plan.totals.collectFromAgents);
+  });
+});

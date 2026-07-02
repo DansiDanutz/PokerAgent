@@ -11,6 +11,8 @@ export interface AgentExposureRow {
   balance: number;
   /** Sum of credit limits extended to this agent's DIRECT players (minor units). */
   committed: number;
+  /** Admin-granted credit line — how far the agent's balance may go negative (minor units). */
+  creditLine: number;
   currency: string;
 }
 
@@ -73,6 +75,7 @@ export function AgentExposure({ agents }: { agents: AgentExposureRow[] }) {
                     {formatMoney(a.committed, a.currency)} committed of {formatMoney(a.balance, a.currency)} balance
                     {" · "}
                     {formatPercent(pctUsed, 0)} used
+                    {a.creditLine > 0 && <> · line {formatMoney(a.creditLine, a.currency)}</>}
                   </p>
                 </div>
                 <span className={`shrink-0 text-sm font-semibold ${tone}`}>

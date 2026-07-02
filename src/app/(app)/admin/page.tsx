@@ -47,6 +47,7 @@ export default async function AdminPage() {
       committed: users
         .filter((u) => u.uplineAgentId === agent.id)
         .reduce((s, u) => s + (u.creditLimit ?? 0), 0),
+      creditLine: agent.creditLimit ?? 0,
       currency: agent.currency,
     }));
   const adminRows: AdminUserRow[] = users.map((u) => {
@@ -62,6 +63,7 @@ export default async function AdminPage() {
       balance: u.balance,
       currency: u.currency,
       rake: u.stats.rakeGenerated,
+      creditLimit: u.creditLimit ?? 0,
       clubggId: u.clubggId,
       uplineAgentId: u.uplineAgentId,
       // Resolve the upline to its invite code + username so the export is

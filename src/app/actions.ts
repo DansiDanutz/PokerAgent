@@ -360,6 +360,7 @@ export async function setPlayerCreditLimit(formData: FormData): Promise<void> {
     Math.round(parsed.data.creditLimit * 100),
   );
   revalidatePath("/members");
+  revalidatePath("/admin"); // admin sets agent credit lines from the console
 }
 
 const creditRequestSchema = z.object({
