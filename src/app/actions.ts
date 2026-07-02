@@ -491,47 +491,82 @@ export async function importRoster(_prev: ImportResult, formData: FormData): Pro
 
 /** Hard cap on rows a single import will parse — keeps a giant paste bounded. */
 const MAX_IMPORT_ROWS = 5000;
+/** Hard cap on files per batch — a day's tables, not a dump of history. */
+const MAX_IMPORT_FILES = 30;
+
+export type StatsImportFileResult = {
+  fileName: string;
+  plan: StatsImportPlan;
+  parseWarnings: string[];
+};
 
 export type StatsImportState = {
-  plan?: StatsImportPlan;
+  /** One result per imported file — one ClubGG export file = one session. */
+  results?: StatsImportFileResult[];
   /** Set once an apply has committed, so the UI can show a success banner. */
   applied?: boolean;
-  /** Parse-level warnings (unmapped columns, skipped rows). */
-  parseWarnings?: string[];
   error?: string;
 };
 
 /**
  * One action drives both steps via a `mode` field: "preview" computes the
- * distribution without touching balances; "apply" commits it. Applying always
- * re-parses and re-computes server-side from the submitted CSV — the client
- * never sends amounts, so a tampered preview can't move money.
+ * distribution without touching balances; "apply" commits it. Accepts MULTIPLE
+ * export files (the daily per-table workflow: one Game Detail file per table)
+ * — each file runs the FULL automation chain independently and becomes its own
+ * persisted session. Applying always re-parses and re-computes server-side
+ * from the submitted CSVs — the client never sends amounts, so a tampered
+ * preview can't move money.
  */
 export async function runStatsImport(_prev: StatsImportState, formData: FormData): Promise<StatsImportState> {
   const admin = await requireAdmin();
   const mode = formData.get("mode") === "apply" ? "apply" : "preview";
-  const text = String(formData.get("csv") ?? "").trim();
-  if (!text) return { error: "Paste the ClubGG stats CSV first." };
 
-  const { rows, warnings } = parseClubggStats(text);
-  if (rows.length === 0) {
-    return { error: warnings[0] ?? "No usable rows found in that CSV.", parseWarnings: warnings };
+  // Gather inputs: uploaded files first, pasted CSV as a fallback "file".
+  const inputs: Array<{ fileName: string; text: string }> = [];
+  for (const f of formData.getAll("files")) {
+    if (f instanceof File && f.size > 0) inputs.push({ fileName: f.name, text: await f.text() });
   }
-  if (rows.length > MAX_IMPORT_ROWS) {
-    return { error: `That file has ${rows.length} rows — the import cap is ${MAX_IMPORT_ROWS}. Split it and try again.` };
+  const pasted = String(formData.get("csv") ?? "").trim();
+  if (pasted) inputs.push({ fileName: "Pasted CSV", text: pasted });
+  if (inputs.length === 0) return { error: "Choose the ClubGG export file(s) or paste CSV rows first." };
+  if (inputs.length > MAX_IMPORT_FILES) {
+    return { error: `That's ${inputs.length} files — the per-batch cap is ${MAX_IMPORT_FILES}.` };
   }
 
   const repo = getRepository();
-  try {
-    const plan =
-      mode === "apply"
-        ? await repo.applyStatsImport(admin.id, rows)
-        : await repo.previewStatsImport(admin.id, rows);
-    if (mode === "apply") revalidatePath("/admin");
-    return { plan, applied: mode === "apply", parseWarnings: warnings };
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : "Import failed", parseWarnings: warnings };
+  const results: StatsImportFileResult[] = [];
+  for (const input of inputs) {
+    const { rows, warnings } = parseClubggStats(input.text);
+    if (rows.length === 0) {
+      return {
+        error: `${input.fileName}: ${warnings[0] ?? "no usable rows found."}`,
+        results: results.length > 0 ? results : undefined,
+        applied: mode === "apply" && results.length > 0,
+      };
+    }
+    if (rows.length > MAX_IMPORT_ROWS) {
+      return { error: `${input.fileName} has ${rows.length} rows — the per-file cap is ${MAX_IMPORT_ROWS}.` };
+    }
+    try {
+      const plan =
+        mode === "apply"
+          ? await repo.applyStatsImport(admin.id, rows, { sourceFile: input.fileName })
+          : await repo.previewStatsImport(admin.id, rows);
+      results.push({ fileName: input.fileName, plan, parseWarnings: warnings });
+    } catch (e) {
+      // Report which file failed; earlier files in an apply batch HAVE been
+      // committed (each is an independent session) — say so honestly.
+      return {
+        error: `${input.fileName}: ${e instanceof Error ? e.message : "import failed"}${
+          mode === "apply" && results.length > 0 ? ` (${results.length} earlier file(s) were already applied)` : ""
+        }`,
+        results: results.length > 0 ? results : undefined,
+        applied: mode === "apply" && results.length > 0,
+      };
+    }
   }
+  if (mode === "apply") revalidatePath("/admin");
+  return { results, applied: mode === "apply" };
 }
 
 export async function setKyc(

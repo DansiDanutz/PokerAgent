@@ -123,3 +123,19 @@ describe("parseClubggStats", () => {
     expect(parseClubggStats("").warnings.join(" ")).toMatch(/empty/i);
   });
 });
+
+describe("parseClubggStats — per-table metadata", () => {
+  it("captures table name and game type from per-table (Game Detail) reports", () => {
+    const csv = ["member_id,table name,game type,hands,rake", "8842014,NLH 1/2 Table 5,NLH,320,4.20"].join("\n");
+    const { rows } = parseClubggStats(csv);
+    expect(rows[0].tableName).toBe("NLH 1/2 Table 5");
+    expect(rows[0].gameType).toBe("NLH");
+  });
+
+  it("leaves table/game undefined when the report doesn't carry them", () => {
+    const csv = ["member_id,rake,hands", "8842014,21.50,1240"].join("\n");
+    const { rows } = parseClubggStats(csv);
+    expect(rows[0].tableName).toBeUndefined();
+    expect(rows[0].gameType).toBeUndefined();
+  });
+});

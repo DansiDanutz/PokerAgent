@@ -1,10 +1,11 @@
 "use client";
 
-import { useActionState, useRef, useState } from "react";
+import { useActionState, useState } from "react";
 import { FileSpreadsheet, Eye, CheckCircle2, AlertTriangle, Coins, Users, ArrowLeftRight } from "lucide-react";
 import { Card, SectionTitle, Button, Stat, Badge } from "@/components/ui";
 import { RakeSplitBar } from "@/components/clubgg/RakeSplitBar";
 import { runStatsImport, type StatsImportState } from "@/app/actions";
+import type { StatsImportPlan } from "@/lib/clubgg/distribution";
 import { formatMoney, formatNumber } from "@/lib/format";
 
 const initial: StatsImportState = {};
@@ -13,50 +14,48 @@ const SAMPLE =
   "member_id,nickname,agent,hands,rake,buy_in,cash_out\n8842014,alexplayer,PAGENT-ARJUN12,1240,21.50,500.00,715.50";
 
 /**
- * ClubGG "Club Data" stats import. The engine is money-moving, so it is
- * strictly two-step: PREVIEW computes the full distribution (stat deltas,
- * player rakeback, agent settlements) without touching a single balance;
- * APPLY re-computes server-side and commits. The admin always sees the exact
- * numbers before anything settles.
+ * ClubGG "Club Data" stats import — the daily per-table workflow. Select ALL
+ * of a day's export files at once (one Game Detail file per table); each file
+ * runs the full automation chain (stats → rakeback → agent overrides → game
+ * settlements) and becomes its own permanent session in the economy ledger.
+ * Strictly two-step: PREVIEW computes everything touching nothing; APPLY
+ * re-computes server-side and commits.
  */
 export function StatsImport({ currency = "USD" }: { currency?: string }) {
   const [state, action, pending] = useActionState(runStatsImport, initial);
-  const [fileName, setFileName] = useState<string | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [fileCount, setFileCount] = useState(0);
 
-  // Load a .csv from disk straight into the textarea (client-only convenience).
-  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setFileName(file.name);
-    file.text().then((t) => {
-      if (textareaRef.current) textareaRef.current.value = t;
-    });
-  };
-
-  const plan = state.plan;
-  const canApply = !!plan && !state.applied;
+  const canApply = !!state.results?.length && !state.applied;
 
   return (
     <Card glow="gold">
       <SectionTitle
         title="ClubGG stats import"
-        subtitle="Distribute a downloaded Club Data period — rake, rakeback & agent settlements"
+        subtitle="Import each day's table files — every file is distributed & recorded as its own session"
       />
 
       <form action={action} className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex cursor-pointer items-center gap-2 rounded-xl bg-white/5 px-3 py-2 text-xs font-medium text-ink-200 ring-1 ring-inset ring-white/10 hover:bg-white/10">
-            <FileSpreadsheet size={14} /> {fileName ?? "Choose CSV file…"}
-            <input type="file" accept=".csv,text/csv" onChange={onFile} className="hidden" />
+            <FileSpreadsheet size={14} />
+            {fileCount > 0 ? `${fileCount} file${fileCount === 1 ? "" : "s"} selected` : "Choose export file(s)…"}
+            <input
+              type="file"
+              name="files"
+              accept=".csv,text/csv,.xls,.xlsx"
+              multiple
+              onChange={(e) => setFileCount(e.target.files?.length ?? 0)}
+              className="hidden"
+            />
           </label>
-          <span className="text-[11px] text-ink-500">…or paste the rows below.</span>
+          <span className="text-[11px] text-ink-500">
+            select all of today&apos;s table files at once — or paste rows below.
+          </span>
         </div>
 
         <textarea
-          ref={textareaRef}
           name="csv"
-          rows={5}
+          rows={4}
           placeholder={SAMPLE}
           className="w-full rounded-xl bg-felt-900 px-3.5 py-2.5 font-mono text-xs text-ink-100 outline-none ring-1 ring-inset ring-white/10 placeholder:text-ink-600 focus:ring-gold-500/50"
         />
@@ -67,7 +66,7 @@ export function StatsImport({ currency = "USD" }: { currency?: string }) {
           </Button>
           {canApply && (
             <Button type="submit" name="mode" value="apply" disabled={pending}>
-              <CheckCircle2 size={15} /> Apply &amp; settle
+              <CheckCircle2 size={15} /> {pending ? "Applying…" : `Apply & settle ${state.results!.length > 1 ? `all ${state.results!.length} files` : ""}`}
             </Button>
           )}
         </div>
@@ -79,13 +78,26 @@ export function StatsImport({ currency = "USD" }: { currency?: string }) {
         </p>
       )}
 
-      {state.applied && (
+      {state.applied && state.results && (
         <p className="mt-3 flex items-center gap-1.5 rounded-xl bg-emerald-glow/10 px-3 py-2 text-sm text-emerald-soft ring-1 ring-inset ring-emerald-glow/20">
-          <CheckCircle2 size={16} /> Distribution applied — stats, rakeback and settlements are live.
+          <CheckCircle2 size={16} /> {state.results.length} file{state.results.length === 1 ? "" : "s"} applied — stats,
+          rakeback, settlements and session records are live.
         </p>
       )}
 
-      {plan && <PlanView plan={plan} applied={!!state.applied} currency={currency} warnings={state.parseWarnings} />}
+      {state.results?.map((r) => (
+        <details key={r.fileName} open={state.results!.length === 1} className="mt-4">
+          <summary className="flex cursor-pointer flex-wrap items-center gap-2 text-sm font-semibold text-ink-100">
+            <FileSpreadsheet size={14} className="text-gold-300" /> {r.fileName}
+            <span className="text-xs font-normal text-ink-500">
+              {formatNumber(r.plan.totals.matched)}/{formatNumber(r.plan.totals.members)} members ·{" "}
+              {formatMoney(r.plan.totals.rake, currency)} rake
+            </span>
+            {r.plan.sessionId && <Badge tone="emerald">session recorded</Badge>}
+          </summary>
+          <PlanView plan={r.plan} applied={!!state.applied} currency={currency} warnings={r.parseWarnings} />
+        </details>
+      ))}
     </Card>
   );
 }
@@ -96,7 +108,7 @@ function PlanView({
   currency,
   warnings,
 }: {
-  plan: NonNullable<StatsImportState["plan"]>;
+  plan: StatsImportPlan;
   applied: boolean;
   currency: string;
   warnings?: string[];

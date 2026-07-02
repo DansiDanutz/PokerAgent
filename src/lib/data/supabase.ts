@@ -34,6 +34,7 @@ import type { ClubggMemberStats } from "@/lib/clubgg/statsImport";
 import {
   planDistribution,
   type StatsImportPlan,
+  type StatsImportOptions,
   type DistributionMember,
   type ImportSessionDetail,
   type ImportSessionSummary,
@@ -975,7 +976,7 @@ export class SupabaseRepository implements Repository {
     return this.buildStatsImportPlan(adminId, rows);
   }
 
-  async applyStatsImport(adminId: string, rows: ClubggMemberStats[]): Promise<StatsImportPlan> {
+  async applyStatsImport(adminId: string, rows: ClubggMemberStats[], opts?: StatsImportOptions): Promise<StatsImportPlan> {
     const plan = await this.buildStatsImportPlan(adminId, rows);
     const ts = new Date().toISOString();
 
@@ -1079,7 +1080,8 @@ export class SupabaseRepository implements Repository {
     const t = plan.totals;
     const { error: sessionError } = await this.db.from("pa_import_sessions").insert({
       id: sessionId,
-      label: `ClubGG import · ${ts.slice(0, 10)}`,
+      label: `${opts?.sourceFile ?? "ClubGG import"} · ${ts.slice(0, 10)}`,
+      source_file: opts?.sourceFile ?? null,
       created_at: ts,
       applied_by: adminId,
       members: t.members,
@@ -1112,6 +1114,8 @@ export class SupabaseRepository implements Repository {
           player_rakeback: l.playerRakeback,
           agent_share: l.agentShare,
           admin_share: l.adminShare,
+          table_name: l.tableName ?? null,
+          game_type: l.gameType ?? null,
         })),
       );
       if (linesError) dbError(linesError);
@@ -1124,13 +1128,14 @@ export class SupabaseRepository implements Repository {
   // --- economy ledger: persisted import sessions -----------------------------
 
   private static readonly SESSION_COLUMNS =
-    "id, label, created_at, applied_by, members, matched, unmatched, hands, total_rake, " +
+    "id, label, source_file, created_at, applied_by, members, matched, unmatched, hands, total_rake, " +
     "player_rakeback, agent_commission, admin_kept, pay_to_agents, collect_from_agents";
 
   private toSessionSummary(row: Record<string, unknown>): ImportSessionSummary {
     return {
       id: row.id as string,
       label: row.label as string,
+      sourceFile: (row.source_file as string | null) ?? undefined,
       createdAt: row.created_at as string,
       appliedBy: row.applied_by as string,
       totals: {
@@ -1165,6 +1170,8 @@ export class SupabaseRepository implements Repository {
       playerRakeback: Number(row.player_rakeback),
       agentShare: Number(row.agent_share),
       adminShare: Number(row.admin_share),
+      tableName: (row.table_name as string | null) ?? undefined,
+      gameType: (row.game_type as string | null) ?? undefined,
     };
   }
 

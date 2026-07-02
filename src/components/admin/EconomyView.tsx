@@ -178,6 +178,7 @@ export function EconomyView({
               <thead className="bg-white/[0.03] text-ink-400">
                 <tr>
                   <th className="px-3 py-2 font-medium">Member</th>
+                  <th className="px-3 py-2 font-medium">Table</th>
                   <th className="px-3 py-2 text-right font-medium">Hands</th>
                   <th className="px-3 py-2 text-right font-medium">Hours</th>
                   <th className="px-3 py-2 text-right font-medium">Rake</th>
@@ -200,6 +201,10 @@ export function EconomyView({
                         ) : (
                           <span className="text-ink-400">{label} <Badge tone="warning">unlinked</Badge></span>
                         )}
+                      </td>
+                      <td className="px-3 py-2 text-ink-400">
+                        {l.tableName ?? "—"}
+                        {l.gameType && <span className="text-ink-600"> · {l.gameType}</span>}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums text-ink-300">{formatNumber(l.handsPlayed)}</td>
                       <td className="px-3 py-2 text-right tabular-nums text-ink-300">{l.tableHours || "—"}</td>

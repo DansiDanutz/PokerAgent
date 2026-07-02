@@ -40,6 +40,10 @@ export interface StatsImportLine {
   netProfit: number;
   buyIn: number;
   cashOut: number;
+  /** Table this row came from — present in per-table reports ("Game Detail"). */
+  tableName?: string;
+  /** Game type (NLH/PLO/…), when the report carries it. */
+  gameType?: string;
   // --- where THIS player's rake is distributed (sums to `rake`) ---
   rakebackEligible: boolean;
   /** Paid to the player (their own rakeback). 0 if ineligible/unmatched. */
@@ -116,11 +120,19 @@ export interface StatsImportPlan {
  */
 export interface ImportSessionSummary {
   id: string;
-  /** Human label, e.g. "ClubGG import · 2026-07-02". */
+  /** Human label, e.g. "Table 5 NLH.csv · 2026-07-02". */
   label: string;
+  /** Original file name of the imported export, when uploaded as a file. */
+  sourceFile?: string;
   createdAt: string; // ISO
   appliedBy: string; // admin user id
   totals: DistributionTotals;
+}
+
+/** Options accompanying one import — file identity for the session record. */
+export interface StatsImportOptions {
+  /** Original file name (one ClubGG export file = one session, e.g. one table/day). */
+  sourceFile?: string;
 }
 
 export interface ImportSessionDetail extends ImportSessionSummary {
@@ -202,6 +214,8 @@ function baseLine(row: ClubggMemberStats, member: DistributionMember | undefined
     netProfit: row.profitLoss,
     buyIn: row.buyIn,
     cashOut: row.cashOut,
+    tableName: row.tableName,
+    gameType: row.gameType,
     rakebackEligible: eligible,
     playerRakeback: 0,
     agentShare: 0,

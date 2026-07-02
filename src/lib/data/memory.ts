@@ -30,6 +30,7 @@ import type { ClubggMemberStats } from "@/lib/clubgg/statsImport";
 import {
   planDistribution,
   type StatsImportPlan,
+  type StatsImportOptions,
   type DistributionMember,
   type ImportSessionDetail,
   type ImportSessionSummary,
@@ -883,7 +884,7 @@ export class MemoryRepository implements Repository {
     return false;
   }
 
-  async applyStatsImport(adminId: string, rows: ClubggMemberStats[]): Promise<StatsImportPlan> {
+  async applyStatsImport(adminId: string, rows: ClubggMemberStats[], opts?: StatsImportOptions): Promise<StatsImportPlan> {
     // Plan from PRE-import state so rates/eligibility are deterministic and
     // preview == apply. Then commit stat deltas, rakeback and settlements.
     const plan = await this.buildStatsImportPlan(adminId, rows);
@@ -984,7 +985,8 @@ export class MemoryRepository implements Repository {
     // player's hands/rake/P&L per period), not just lifetime totals.
     const session: ImportSessionDetail = {
       id: this.id("s"),
-      label: `ClubGG import · ${ts.slice(0, 10)}`,
+      label: `${opts?.sourceFile ?? "ClubGG import"} · ${ts.slice(0, 10)}`,
+      sourceFile: opts?.sourceFile,
       createdAt: ts,
       appliedBy: adminId,
       totals: plan.totals,

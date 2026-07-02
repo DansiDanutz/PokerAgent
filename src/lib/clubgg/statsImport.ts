@@ -42,10 +42,25 @@ export interface ClubggMemberStats {
   profitLoss: number;
   /** Table hours, if the export provides them (often absent in ClubGG). */
   hours?: number;
+  /** Table name/id — present in per-table reports (ClubGG "Game Detail"). */
+  tableName?: string;
+  /** Game type (NLH/PLO/…) — present in per-game-type reports. */
+  gameType?: string;
 }
 
 /** The fields we know how to fill, used as the internal mapping target. */
-type Field = "clubggId" | "nickname" | "agentRef" | "handsPlayed" | "rake" | "buyIn" | "cashOut" | "profitLoss" | "hours";
+type Field =
+  | "clubggId"
+  | "nickname"
+  | "agentRef"
+  | "handsPlayed"
+  | "rake"
+  | "buyIn"
+  | "cashOut"
+  | "profitLoss"
+  | "hours"
+  | "tableName"
+  | "gameType";
 
 // Normalize a header cell (or an alias key) to its lookup form: lowercase,
 // alphanumerics only — so "Member ID", "member_id", and "MemberID" all collide.
@@ -97,6 +112,14 @@ const COLUMN_ALIASES: Record<string, Field> = {
   pl: "profitLoss",
   winloss: "profitLoss",
   net: "profitLoss",
+  // table / game (ClubGG "Game Detail" & "Game Statistics" are per-table)
+  table: "tableName",
+  tablename: "tableName",
+  tableno: "tableName",
+  tabletitle: "tableName",
+  gametype: "gameType",
+  game: "gameType",
+  gamemode: "gameType",
 };
 
 /**
@@ -242,6 +265,8 @@ export function parseClubggStats(csv: string): ClubggParseResult {
       // Prefer the file's own P/L column; otherwise derive it.
       profitLoss: explicitPl !== undefined && explicitPl !== "" ? parseMoneyToCents(explicitPl) : cashOut - buyIn,
       hours: parseDecimalOrUndefined(at(cells, "hours")),
+      tableName: at(cells, "tableName")?.trim() || undefined,
+      gameType: at(cells, "gameType")?.trim() || undefined,
     });
   }
 

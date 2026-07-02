@@ -21,6 +21,7 @@ import type {
   ImportSessionDetail,
   ImportSessionSummary,
   MemberSessionHistoryEntry,
+  StatsImportOptions,
   StatsImportPlan,
 } from "@/lib/clubgg/distribution";
 
@@ -182,9 +183,10 @@ export interface Repository {
   /**
    * Apply a stats period: increment each matched member's stats, pay personal
    * rakeback, and settle each agent's commission — atomically. Returns the plan
-   * that was actually applied. Admin only.
+   * that was actually applied (with the persisted session id). One export file
+   * (e.g. one table's daily report) = one call = one session. Admin only.
    */
-  applyStatsImport(adminId: string, rows: ClubggMemberStats[]): Promise<StatsImportPlan>;
+  applyStatsImport(adminId: string, rows: ClubggMemberStats[], opts?: StatsImportOptions): Promise<StatsImportPlan>;
   /**
    * Estimate how an agent's downline's LIFETIME rake would distribute under the
    * current override model — the SAME engine imports use, so the "your

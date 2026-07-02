@@ -928,3 +928,34 @@ describe("MemoryRepository — economy ledger (import sessions)", () => {
     await expect(repo.listMemberImportHistory("u_arjun", "u_alex")).rejects.toThrow(/admin/i);
   });
 });
+
+describe("MemoryRepository — per-file (per-table) daily sessions", () => {
+  let repo: MemoryRepository;
+  beforeEach(() => {
+    repo = new MemoryRepository();
+  });
+
+  it("labels each applied file's session with its source file and keeps per-line table metadata", async () => {
+    const plan = await repo.applyStatsImport(
+      "u_admin",
+      [{ clubggId: "8842014", nickname: "alex", handsPlayed: 300, rake: 2000, buyIn: 0, cashOut: 0, profitLoss: 0, hours: 2, tableName: "NLH 1/2 Table 5", gameType: "NLH" }],
+      { sourceFile: "Table5_GameDetail_2026-07-02.csv" },
+    );
+    const session = (await repo.getImportSession("u_admin", plan.sessionId!))!;
+    expect(session.sourceFile).toBe("Table5_GameDetail_2026-07-02.csv");
+    expect(session.label).toContain("Table5_GameDetail_2026-07-02.csv");
+    expect(session.lines[0].tableName).toBe("NLH 1/2 Table 5");
+    expect(session.lines[0].gameType).toBe("NLH");
+  });
+
+  it("keeps one session per file so a day of tables is independently tracked", async () => {
+    const mk = (table: string, rake: number) => [
+      { clubggId: "8842014", nickname: "alex", handsPlayed: 100, rake, buyIn: 0, cashOut: 0, profitLoss: 0, hours: 1, tableName: table },
+    ];
+    await repo.applyStatsImport("u_admin", mk("Table 1", 1000), { sourceFile: "table1.csv" });
+    await repo.applyStatsImport("u_admin", mk("Table 2", 2000), { sourceFile: "table2.csv" });
+    const sessions = await repo.listImportSessions("u_admin");
+    expect(sessions.map((s) => s.sourceFile)).toEqual(["table2.csv", "table1.csv"]);
+    expect(sessions.map((s) => s.totals.rake)).toEqual([2000, 1000]);
+  });
+});
