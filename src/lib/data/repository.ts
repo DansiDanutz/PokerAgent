@@ -17,7 +17,12 @@ import type {
   User,
 } from "@/types/domain";
 import type { ClubggMemberStats } from "@/lib/clubgg/statsImport";
-import type { StatsImportPlan } from "@/lib/clubgg/distribution";
+import type {
+  ImportSessionDetail,
+  ImportSessionSummary,
+  MemberSessionHistoryEntry,
+  StatsImportPlan,
+} from "@/lib/clubgg/distribution";
 
 export interface CreateTransferInput {
   fromUserId: string;
@@ -189,6 +194,14 @@ export interface Repository {
    * residual flows "upstream" (their uplines + house). Read-only.
    */
   estimateDistribution(agentId: string): Promise<StatsImportPlan>;
+
+  // --- economy ledger: persisted import sessions (admin only) ---
+  /** All applied import sessions, newest first — the club's period history. */
+  listImportSessions(adminId: string): Promise<ImportSessionSummary[]>;
+  /** One session with its per-member lines, or null if unknown. */
+  getImportSession(adminId: string, sessionId: string): Promise<ImportSessionDetail | null>;
+  /** A member's per-session history (their line in every session they appear in), newest first. */
+  listMemberImportHistory(adminId: string, userId: string): Promise<MemberSessionHistoryEntry[]>;
 
   // --- monthly rakeback tier recalculation (cron) ---
   /**

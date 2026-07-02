@@ -13,6 +13,7 @@ import {
   User as UserIcon,
   Bell,
   Shield,
+  LineChart,
   LogOut,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -38,6 +39,7 @@ const NAV: NavItem[] = [
   { href: "/wallet", label: "Wallet", icon: Wallet, roles: ["player", "agent", "admin"] },
   { href: "/calculator", label: "Calculator", icon: Calculator, roles: ["player", "agent", "admin"] },
   { href: "/admin", label: "Admin", icon: Shield, roles: ["admin"] },
+  { href: "/admin/economy", label: "Economy", icon: LineChart, roles: ["admin"] },
   { href: "/notifications", label: "Alerts", icon: Bell, roles: ["player", "agent", "admin"] },
   { href: "/profile", label: "Profile", icon: UserIcon, roles: ["player", "agent", "admin"] },
 ];

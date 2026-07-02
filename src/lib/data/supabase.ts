@@ -31,7 +31,15 @@ import type {
   SweepResult,
 } from "./repository";
 import type { ClubggMemberStats } from "@/lib/clubgg/statsImport";
-import { planDistribution, type StatsImportPlan, type DistributionMember } from "@/lib/clubgg/distribution";
+import {
+  planDistribution,
+  type StatsImportPlan,
+  type DistributionMember,
+  type ImportSessionDetail,
+  type ImportSessionSummary,
+  type MemberSessionHistoryEntry,
+  type StatsImportLine,
+} from "@/lib/clubgg/distribution";
 import { buildNewMember } from "./newMember";
 import { ADMIN_EMAIL, isAdminEmail } from "@/lib/governance";
 import {
@@ -1065,7 +1073,154 @@ export class SupabaseRepository implements Repository {
       }
     }
 
+    // 4) Persist the applied period as a permanent session record — the
+    // economy ledger (summary + per-member lines). See pa_import_sessions.
+    const sessionId = this.newId("s");
+    const t = plan.totals;
+    const { error: sessionError } = await this.db.from("pa_import_sessions").insert({
+      id: sessionId,
+      label: `ClubGG import · ${ts.slice(0, 10)}`,
+      created_at: ts,
+      applied_by: adminId,
+      members: t.members,
+      matched: t.matched,
+      unmatched: t.unmatched,
+      hands: t.hands,
+      total_rake: t.rake,
+      player_rakeback: t.playerRakeback,
+      agent_commission: t.commission,
+      admin_kept: t.adminKept,
+      pay_to_agents: t.payToAgents,
+      collect_from_agents: t.collectFromAgents,
+    });
+    if (sessionError) dbError(sessionError);
+    if (plan.lines.length > 0) {
+      const { error: linesError } = await this.db.from("pa_import_lines").insert(
+        plan.lines.map((l) => ({
+          id: this.newId("il"),
+          session_id: sessionId,
+          user_id: l.userId ?? null,
+          clubgg_id: l.clubggId,
+          nickname: l.nickname ?? null,
+          hands: l.handsPlayed,
+          hours: l.tableHours,
+          rake: l.rake,
+          net_profit: l.netProfit,
+          buy_in: l.buyIn,
+          cash_out: l.cashOut,
+          rakeback_eligible: l.rakebackEligible,
+          player_rakeback: l.playerRakeback,
+          agent_share: l.agentShare,
+          admin_share: l.adminShare,
+        })),
+      );
+      if (linesError) dbError(linesError);
+    }
+    plan.sessionId = sessionId;
+
     return plan;
+  }
+
+  // --- economy ledger: persisted import sessions -----------------------------
+
+  private static readonly SESSION_COLUMNS =
+    "id, label, created_at, applied_by, members, matched, unmatched, hands, total_rake, " +
+    "player_rakeback, agent_commission, admin_kept, pay_to_agents, collect_from_agents";
+
+  private toSessionSummary(row: Record<string, unknown>): ImportSessionSummary {
+    return {
+      id: row.id as string,
+      label: row.label as string,
+      createdAt: row.created_at as string,
+      appliedBy: row.applied_by as string,
+      totals: {
+        members: row.members as number,
+        matched: row.matched as number,
+        unmatched: row.unmatched as number,
+        hands: Number(row.hands),
+        rake: Number(row.total_rake),
+        playerRakeback: Number(row.player_rakeback),
+        commission: Number(row.agent_commission),
+        adminKept: Number(row.admin_kept),
+        payToAgents: Number(row.pay_to_agents),
+        collectFromAgents: Number(row.collect_from_agents),
+      },
+    };
+  }
+
+  private toSessionLine(row: Record<string, unknown>): StatsImportLine {
+    return {
+      clubggId: row.clubgg_id as string,
+      userId: (row.user_id as string | null) ?? undefined,
+      username: undefined, // resolved by the caller from profiles when needed
+      matched: row.user_id != null,
+      nickname: (row.nickname as string | null) ?? undefined,
+      handsPlayed: Number(row.hands),
+      tableHours: Number(row.hours),
+      rake: Number(row.rake),
+      netProfit: Number(row.net_profit),
+      buyIn: Number(row.buy_in),
+      cashOut: Number(row.cash_out),
+      rakebackEligible: row.rakeback_eligible as boolean,
+      playerRakeback: Number(row.player_rakeback),
+      agentShare: Number(row.agent_share),
+      adminShare: Number(row.admin_share),
+    };
+  }
+
+  async listImportSessions(adminId: string): Promise<ImportSessionSummary[]> {
+    await this.assertAdmin(adminId);
+    const { data, error } = await this.db
+      .from("pa_import_sessions")
+      .select(SupabaseRepository.SESSION_COLUMNS)
+      .order("created_at", { ascending: false });
+    if (error) dbError(error);
+    return (data as unknown as Record<string, unknown>[]).map((r) => this.toSessionSummary(r));
+  }
+
+  async getImportSession(adminId: string, sessionId: string): Promise<ImportSessionDetail | null> {
+    await this.assertAdmin(adminId);
+    const { data, error } = await this.db
+      .from("pa_import_sessions")
+      .select(SupabaseRepository.SESSION_COLUMNS)
+      .eq("id", sessionId)
+      .maybeSingle();
+    if (error) dbError(error);
+    if (!data) return null;
+    const { data: lineRows, error: linesError } = await this.db
+      .from("pa_import_lines")
+      .select("*")
+      .eq("session_id", sessionId)
+      .order("rake", { ascending: false });
+    if (linesError) dbError(linesError);
+    return {
+      ...this.toSessionSummary(data as unknown as Record<string, unknown>),
+      lines: (lineRows as unknown as Record<string, unknown>[]).map((r) => this.toSessionLine(r)),
+    };
+  }
+
+  async listMemberImportHistory(adminId: string, userId: string): Promise<MemberSessionHistoryEntry[]> {
+    await this.assertAdmin(adminId);
+    const { data: lineRows, error } = await this.db
+      .from("pa_import_lines")
+      .select("*")
+      .eq("user_id", userId);
+    if (error) dbError(error);
+    const rows = lineRows as unknown as Record<string, unknown>[];
+    if (rows.length === 0) return [];
+    const sessionIds = [...new Set(rows.map((r) => r.session_id as string))];
+    const { data: sessionRows, error: sessionsError } = await this.db
+      .from("pa_import_sessions")
+      .select(SupabaseRepository.SESSION_COLUMNS)
+      .in("id", sessionIds);
+    if (sessionsError) dbError(sessionsError);
+    const sessionById = new Map(
+      (sessionRows as unknown as Record<string, unknown>[]).map((r) => [r.id as string, this.toSessionSummary(r)]),
+    );
+    return rows
+      .map((r) => ({ session: sessionById.get(r.session_id as string), line: this.toSessionLine(r) }))
+      .filter((e): e is MemberSessionHistoryEntry => e.session !== undefined)
+      .sort((a, b) => b.session.createdAt.localeCompare(a.session.createdAt));
   }
 
   // --- monthly rakeback tier recalculation ----------------------------------

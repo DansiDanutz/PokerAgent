@@ -27,7 +27,14 @@ import type {
   SweepResult,
 } from "./repository";
 import type { ClubggMemberStats } from "@/lib/clubgg/statsImport";
-import { planDistribution, type StatsImportPlan, type DistributionMember } from "@/lib/clubgg/distribution";
+import {
+  planDistribution,
+  type StatsImportPlan,
+  type DistributionMember,
+  type ImportSessionDetail,
+  type ImportSessionSummary,
+  type MemberSessionHistoryEntry,
+} from "@/lib/clubgg/distribution";
 import { randomBytes } from "node:crypto";
 import { buildNewMember } from "./newMember";
 import { hashPassword } from "@/lib/auth/password";
@@ -64,6 +71,8 @@ export class MemoryRepository implements Repository {
   private users: Map<string, User>;
   private transactions: Transaction[];
   private notifications: Notification[];
+  /** Applied import sessions, newest first — the economy's period ledger. */
+  private importSessions: ImportSessionDetail[] = [];
   private passwords: Map<string, string>;
   private seq = 1000;
 
@@ -969,7 +978,47 @@ export class MemoryRepository implements Repository {
       }
     }
 
+    // Persist the applied period as a permanent session record — the economy
+    // ledger. Summary + per-member lines survive forever, so the club has a
+    // per-period history (sessions per day, rake splits over time, and each
+    // player's hands/rake/P&L per period), not just lifetime totals.
+    const session: ImportSessionDetail = {
+      id: this.id("s"),
+      label: `ClubGG import · ${ts.slice(0, 10)}`,
+      createdAt: ts,
+      appliedBy: adminId,
+      totals: plan.totals,
+      lines: plan.lines,
+    };
+    this.importSessions.unshift(clone(session));
+    plan.sessionId = session.id;
+
     return clone(plan);
+  }
+
+  // --- economy ledger: persisted import sessions -----------------------------
+  async listImportSessions(adminId: string): Promise<ImportSessionSummary[]> {
+    this.assertAdmin(adminId);
+    return this.importSessions.map(({ lines: _lines, ...summary }) => clone(summary));
+  }
+
+  async getImportSession(adminId: string, sessionId: string): Promise<ImportSessionDetail | null> {
+    this.assertAdmin(adminId);
+    const session = this.importSessions.find((s) => s.id === sessionId);
+    return session ? clone(session) : null;
+  }
+
+  async listMemberImportHistory(adminId: string, userId: string): Promise<MemberSessionHistoryEntry[]> {
+    this.assertAdmin(adminId);
+    const entries: MemberSessionHistoryEntry[] = [];
+    for (const s of this.importSessions) {
+      const line = s.lines.find((l) => l.userId === userId);
+      if (line) {
+        const { lines: _lines, ...summary } = s;
+        entries.push(clone({ session: summary, line }));
+      }
+    }
+    return entries;
   }
 
   // --- monthly rakeback tier recalculation ----------------------------------

@@ -1,5 +1,6 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Check, X, Users, ShieldCheck, Banknote, TrendingUp } from "lucide-react";
+import { Check, X, Users, ShieldCheck, Banknote, TrendingUp, LineChart } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getRepository } from "@/lib/data";
 import { Card, Stat, SectionTitle, Badge, Avatar } from "@/components/ui";
@@ -76,9 +77,17 @@ export default async function AdminPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-ink-100">Admin console</h1>
-        <p className="text-sm text-ink-400">Oversee players, agents, KYC and cash flow.</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-ink-100">Admin console</h1>
+          <p className="text-sm text-ink-400">Oversee players, agents, KYC and cash flow.</p>
+        </div>
+        <Link
+          href="/admin/economy"
+          className="flex items-center gap-1.5 rounded-xl bg-gold-500/15 px-4 py-2 text-sm font-medium text-gold-300 ring-1 ring-inset ring-gold-500/30 hover:bg-gold-500/25"
+        >
+          <LineChart size={15} /> Club economy
+        </Link>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">

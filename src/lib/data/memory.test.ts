@@ -872,3 +872,59 @@ describe("MemoryRepository — cross-network game-money settlement", () => {
     expect(plan.totals.payToAgents).toBe(plan.totals.collectFromAgents);
   });
 });
+
+describe("MemoryRepository — economy ledger (import sessions)", () => {
+  let repo: MemoryRepository;
+  beforeEach(() => {
+    repo = new MemoryRepository();
+  });
+
+  const rows = [
+    { clubggId: "8842014", nickname: "alex", handsPlayed: 1000, rake: 10000, buyIn: 50000, cashOut: 62000, profitLoss: 12000, hours: 4 },
+    { clubggId: "8842041", nickname: "diego", handsPlayed: 500, rake: 4000, buyIn: 30000, cashOut: 18000, profitLoss: -12000, hours: 2 },
+  ];
+
+  it("persists every applied import as a session with its per-member lines", async () => {
+    const plan = await repo.applyStatsImport("u_admin", rows);
+    expect(plan.sessionId).toBeTruthy();
+
+    const sessions = await repo.listImportSessions("u_admin");
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].id).toBe(plan.sessionId);
+    expect(sessions[0].totals.rake).toBe(14000);
+
+    const detail = (await repo.getImportSession("u_admin", plan.sessionId!))!;
+    expect(detail.lines).toHaveLength(2);
+    expect(detail.lines.find((l) => l.clubggId === "8842014")!.netProfit).toBe(12000);
+  });
+
+  it("orders sessions newest first and keeps them independent", async () => {
+    const first = await repo.applyStatsImport("u_admin", [rows[0]]);
+    const second = await repo.applyStatsImport("u_admin", [rows[1]]);
+    const sessions = await repo.listImportSessions("u_admin");
+    expect(sessions.map((s) => s.id)).toEqual([second.sessionId, first.sessionId]);
+    expect(sessions[0].totals.rake).toBe(4000);
+    expect(sessions[1].totals.rake).toBe(10000);
+  });
+
+  it("returns a member's per-session history, newest first", async () => {
+    await repo.applyStatsImport("u_admin", rows);
+    await repo.applyStatsImport("u_admin", [
+      { clubggId: "8842014", nickname: "alex", handsPlayed: 200, rake: 1500, buyIn: 0, cashOut: 0, profitLoss: -3000, hours: 1 },
+    ]);
+    const history = await repo.listMemberImportHistory("u_admin", "u_alex");
+    expect(history).toHaveLength(2);
+    expect(history[0].line.rake).toBe(1500); // newest session first
+    expect(history[1].line.rake).toBe(10000);
+    // diego appears in only the first session
+    expect(await repo.listMemberImportHistory("u_admin", "u_diego")).toHaveLength(1);
+  });
+
+  it("preview does NOT create a session; ledger reads are admin-only", async () => {
+    await repo.previewStatsImport("u_admin", rows);
+    expect(await repo.listImportSessions("u_admin")).toHaveLength(0);
+    await expect(repo.listImportSessions("u_arjun")).rejects.toThrow(/admin/i);
+    await expect(repo.getImportSession("u_alex", "s_x")).rejects.toThrow(/admin/i);
+    await expect(repo.listMemberImportHistory("u_arjun", "u_alex")).rejects.toThrow(/admin/i);
+  });
+});

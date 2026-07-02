@@ -104,6 +104,34 @@ export interface StatsImportPlan {
   gameSettlements: GameSettlementLine[];
   warnings: string[];
   totals: DistributionTotals;
+  /** Set by apply: the persisted session this import was recorded as. */
+  sessionId?: string;
+}
+
+/**
+ * A PERSISTED import session — the economy's book of record. Every applied
+ * import is stored permanently (summary + per-member lines), so the club has
+ * a per-period history: daily sessions, rake splits over time, and each
+ * player's hands/rake/P&L per period instead of only lifetime totals.
+ */
+export interface ImportSessionSummary {
+  id: string;
+  /** Human label, e.g. "ClubGG import · 2026-07-02". */
+  label: string;
+  createdAt: string; // ISO
+  appliedBy: string; // admin user id
+  totals: DistributionTotals;
+}
+
+export interface ImportSessionDetail extends ImportSessionSummary {
+  /** The per-member period lines exactly as applied. */
+  lines: StatsImportLine[];
+}
+
+/** One member's row in one session — the per-player history unit. */
+export interface MemberSessionHistoryEntry {
+  session: ImportSessionSummary;
+  line: StatsImportLine;
 }
 
 /** Minimal member view the engine needs — decoupled from the full User type. */
