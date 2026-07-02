@@ -866,17 +866,17 @@ export class SupabaseRepository implements Repository {
       if (u.clubggId) membersByClubId.set(u.clubggId, { id: u.id, username: u.username });
       if (isRakebackEligible(levelInputs(u))) eligibleIds.add(u.id);
     }
-    const ownerAgentOf = (userId: string): string | null => {
+    const agentChainOf = (userId: string): string[] => {
+      const chain: string[] = [];
       let cur = byId.get(userId)?.uplineAgentId ?? null;
       let guard = 0;
       while (cur && guard++ < 100) {
         const u = byId.get(cur);
-        if (!u) break;
-        if (u.role === "agent") return u.id;
-        if (u.role === "admin") return null; // platform root — no agent commission
+        if (!u || u.role === "admin") break; // reached the platform root
+        if (u.role === "agent") chain.push(u.id);
         cur = u.uplineAgentId ?? null;
       }
-      return null;
+      return chain;
     };
     const rateByAgent = new Map<string, number>();
     const nameByAgent = new Map<string, string>();
@@ -889,7 +889,7 @@ export class SupabaseRepository implements Repository {
       playerRakebackRate: CLUB.playerRakebackRate,
       membersByClubId,
       rakebackEligible: (id) => eligibleIds.has(id),
-      ownerAgentOf,
+      agentChainOf,
       agentRate: (id) => rateByAgent.get(id) ?? 0,
       agentUsername: (id) => nameByAgent.get(id) ?? id,
     });
@@ -936,13 +936,12 @@ export class SupabaseRepository implements Repository {
       await this.insertTx({
         id: this.newId("t"), userId: agent.id, type: "agent_credit", amount: st.commission,
         currency: agent.currency, status: "completed",
-        note: `Rake settlement · ${formatMoney(st.periodRake, agent.currency)} @ ${Math.round(st.rate * 100)}%`,
-        createdAt: ts, processedBy: adminId,
+        note: "ClubGG rake settlement", createdAt: ts, processedBy: adminId,
       });
       await this.adjustBalance(agent.id, st.commission);
       await this.addNotification({
         userId: agent.id, kind: "money", title: "Rake settlement paid",
-        body: `You earned ${formatMoney(st.commission, agent.currency)} commission on ${formatMoney(st.periodRake, agent.currency)} of network rake.`,
+        body: `You earned ${formatMoney(st.commission, agent.currency)} override commission from your network's rake.`,
       });
     }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useRef, useState } from "react";
-import { FileSpreadsheet, Eye, CheckCircle2, AlertTriangle, Coins, Users, Percent } from "lucide-react";
+import { FileSpreadsheet, Eye, CheckCircle2, AlertTriangle, Coins, Users } from "lucide-react";
 import { Card, SectionTitle, Button, Stat, Badge } from "@/components/ui";
 import { runStatsImport, type StatsImportState } from "@/app/actions";
 import { formatMoney, formatNumber } from "@/lib/format";
@@ -109,10 +109,19 @@ function PlanView({
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Members" value={`${formatNumber(t.matched)}/${formatNumber(t.members)}`} hint={t.unmatched ? `${t.unmatched} unlinked` : "all linked"} />
-        <Stat label="Rake" value={formatMoney(t.rake, currency)} tone="gold" />
-        <Stat label="Player rakeback" value={formatMoney(t.playerRakeback, currency)} tone="up" />
-        <Stat label="Agent settlements" value={formatMoney(t.commission, currency)} tone="up" />
+        <Stat label="Total rake" value={formatMoney(t.rake, currency)} tone="gold" />
+        <Stat label="Distributed" value={formatMoney(t.playerRakeback + t.commission, currency)} tone="up" hint="players + agents" />
+        <Stat label="Admin keeps" value={formatMoney(t.adminKept, currency)} tone="gold" hint="the house cut" />
       </div>
+
+      {/* Where the rake goes — the 3-way split, every dollar accounted for. */}
+      <RakeSplitBar
+        rake={t.rake}
+        players={t.playerRakeback}
+        agents={t.commission}
+        admin={t.adminKept}
+        currency={currency}
+      />
 
       {/* Member distribution */}
       <div className="overflow-x-auto rounded-xl ring-1 ring-inset ring-white/5">
@@ -121,9 +130,10 @@ function PlanView({
             <tr>
               <th className="px-3 py-2 font-medium">Member</th>
               <th className="px-3 py-2 text-right font-medium">Hands</th>
-              <th className="px-3 py-2 text-right font-medium">Hours</th>
               <th className="px-3 py-2 text-right font-medium">Rake</th>
-              <th className="px-3 py-2 text-right font-medium">Rakeback</th>
+              <th className="px-3 py-2 text-right font-medium">Player</th>
+              <th className="px-3 py-2 text-right font-medium">Agents</th>
+              <th className="px-3 py-2 text-right font-medium">Admin</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/5">
@@ -141,7 +151,6 @@ function PlanView({
                   </span>
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums text-ink-300">{formatNumber(l.handsPlayed)}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-ink-300">{l.tableHours || "—"}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-gold-300">{formatMoney(l.rake, currency)}</td>
                 <td className="px-3 py-2 text-right tabular-nums">
                   {l.playerRakeback > 0 ? (
@@ -150,13 +159,17 @@ function PlanView({
                     <span className="text-ink-600">{l.matched && !l.rakebackEligible ? "not L1" : "—"}</span>
                   )}
                 </td>
+                <td className="px-3 py-2 text-right tabular-nums text-ink-300">
+                  {l.agentShare > 0 ? formatMoney(l.agentShare, currency) : <span className="text-ink-600">—</span>}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums text-ink-400">{formatMoney(l.adminShare, currency)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
-      {/* Agent settlements */}
+      {/* Agent settlements — each agent's total override across their downline */}
       {plan.settlements.length > 0 && (
         <div>
           <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-ink-300">
@@ -164,13 +177,9 @@ function PlanView({
           </p>
           <ul className="divide-y divide-white/5 rounded-xl ring-1 ring-inset ring-white/5">
             {plan.settlements.map((s) => (
-              <li key={s.agentId} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-xs">
+              <li key={s.agentId} className="flex items-center gap-x-3 px-3 py-2.5 text-xs">
                 <span className="min-w-0 flex-1 text-ink-100">@{s.username}</span>
-                <span className="tabular-nums text-ink-400">{formatMoney(s.periodRake, currency)} rake</span>
-                <span className="flex items-center gap-0.5 tabular-nums text-ink-400">
-                  <Percent size={11} />
-                  {Math.round(s.rate * 100)}
-                </span>
+                <span className="text-[11px] text-ink-500">override commission</span>
                 <span className="tabular-nums font-semibold text-emerald-soft">{formatMoney(s.commission, currency)}</span>
               </li>
             ))}
@@ -185,6 +194,52 @@ function PlanView({
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+/**
+ * The 3-way split of total rake — Players / Agents / Admin — as a single
+ * stacked bar with amounts and percentages. Directly answers "how much does
+ * each party get". The three always sum to total rake.
+ */
+function RakeSplitBar({
+  rake,
+  players,
+  agents,
+  admin,
+  currency,
+}: {
+  rake: number;
+  players: number;
+  agents: number;
+  admin: number;
+  currency: string;
+}) {
+  const pct = (n: number) => (rake > 0 ? (n / rake) * 100 : 0);
+  const segments = [
+    { label: "Players", amount: players, cls: "bg-emerald-glow", text: "text-emerald-soft" },
+    { label: "Agents", amount: agents, cls: "bg-gold-500", text: "text-gold-300" },
+    { label: "Admin", amount: admin, cls: "bg-white/25", text: "text-ink-200" },
+  ];
+  return (
+    <div className="rounded-xl bg-white/[0.03] p-4 ring-1 ring-inset ring-white/5">
+      <p className="mb-2 text-xs font-semibold text-ink-200">Where the rake goes</p>
+      <div className="flex h-3 w-full overflow-hidden rounded-full bg-felt-900">
+        {segments.map((s) => (
+          <div key={s.label} className={s.cls} style={{ width: `${pct(s.amount)}%` }} title={`${s.label}: ${formatMoney(s.amount, currency)}`} />
+        ))}
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        {segments.map((s) => (
+          <div key={s.label}>
+            <p className={`text-sm font-semibold tabular-nums ${s.text}`}>{formatMoney(s.amount, currency)}</p>
+            <p className="text-[11px] text-ink-500">
+              {s.label} · {pct(s.amount).toFixed(1)}%
+            </p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

@@ -726,18 +726,18 @@ export class MemoryRepository implements Repository {
     };
   }
 
-  /** Nearest AGENT ancestor (own-business owner); null if only admin is above. */
-  private ownerAgentOf(userId: string): User | null {
+  /** AGENT ancestors nearest→top (agents only; stops at the admin root). */
+  private agentChainOf(userId: string): string[] {
+    const chain: string[] = [];
     let cur = this.users.get(userId)?.uplineAgentId ?? null;
     let guard = 0;
     while (cur && guard++ < 100) {
       const u = this.users.get(cur);
-      if (!u) break;
-      if (u.role === "agent") return u;
-      if (u.role === "admin") return null; // platform root — no agent commission
+      if (!u || u.role === "admin") break; // reached the platform root
+      if (u.role === "agent") chain.push(u.id);
       cur = u.uplineAgentId ?? null;
     }
-    return null;
+    return chain;
   }
 
   /** Compute the full distribution plan from CURRENT state, mutating nothing. */
@@ -761,7 +761,7 @@ export class MemoryRepository implements Repository {
       playerRakebackRate: CLUB.playerRakebackRate,
       membersByClubId,
       rakebackEligible: (id) => eligibleIds.has(id),
-      ownerAgentOf: (id) => this.ownerAgentOf(id)?.id ?? null,
+      agentChainOf: (id) => this.agentChainOf(id),
       agentRate: (id) => rateByAgent.get(id) ?? 0,
       agentUsername: (id) => nameByAgent.get(id) ?? id,
     });
@@ -806,12 +806,11 @@ export class MemoryRepository implements Repository {
       this.transactions.push({
         id: this.id("t"), userId: agent.id, type: "agent_credit",
         amount: s.commission, currency: agent.currency, status: "completed",
-        note: `Rake settlement · ${formatMoney(s.periodRake, agent.currency)} @ ${Math.round(s.rate * 100)}%`,
-        createdAt: ts, processedBy: adminId,
+        note: "ClubGG rake settlement", createdAt: ts, processedBy: adminId,
       });
       await this.addNotification({
         userId: agent.id, kind: "money", title: "Rake settlement paid",
-        body: `You earned ${formatMoney(s.commission, agent.currency)} commission on ${formatMoney(s.periodRake, agent.currency)} of network rake.`,
+        body: `You earned ${formatMoney(s.commission, agent.currency)} override commission from your network's rake.`,
       });
     }
 

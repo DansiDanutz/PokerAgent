@@ -703,22 +703,44 @@ describe("MemoryRepository — ClubGG stats import", () => {
     expect(alex.stats.tableHours).toBe(alexBefore.stats.tableHours + 4);
   });
 
-  it("credits an agent's rake settlement at their effective rate", async () => {
+  it("credits an agent their override (agent rate − player rate) on a player's rake", async () => {
     // Seed agents sit below the 10-VIP agent tier (rate 0). Lock a rate on
-    // Arjun so the settlement/credit path is exercised deterministically.
+    // Arjun so the override/credit path is exercised deterministically.
     (repo as unknown as { users: Map<string, User> }).users.get("u_arjun")!.currentRakebackRate = 0.25;
 
     const arjunBefore = (await repo.getUser("u_arjun"))!.balance;
     const plan = await repo.applyStatsImport("u_admin", rows);
 
-    // Only alex's 10000 is eligible (liam is L0) → periodRake 10000 @ 25%.
+    // Alex's 10000: player 10% = 1000, arjun override (25−10)=15% = 1500.
     const settle = plan.settlements.find((s) => s.agentId === "u_arjun")!;
-    expect(settle.periodRake).toBe(10000);
-    expect(settle.commission).toBe(2500);
-    expect((await repo.getUser("u_arjun"))!.balance).toBe(arjunBefore + 2500);
+    expect(settle.commission).toBe(1500);
+    expect((await repo.getUser("u_arjun"))!.balance).toBe(arjunBefore + 1500);
 
     const settlements = await repo.listSettlements();
-    expect(settlements.some((t) => t.userId === "u_arjun" && /Rake settlement/.test(t.note ?? ""))).toBe(true);
+    expect(settlements.some((t) => t.userId === "u_arjun" && /rake settlement/i.test(t.note ?? ""))).toBe(true);
+  });
+
+  it("splits a nested tree correctly: player / sub-agent / super-agent / admin", async () => {
+    const map = (repo as unknown as { users: Map<string, User> }).users;
+    map.get("u_marco")!.currentRakebackRate = 0.25; // sub-agent
+    map.get("u_arjun")!.currentRakebackRate = 0.4; // super-agent above Marco
+
+    // Diego (8842041) sits under Marco under Arjun and is KYC-verified/eligible.
+    const diegoBefore = (await repo.getUser("u_diego"))!.balance;
+    const marcoBefore = (await repo.getUser("u_marco"))!.balance;
+    const arjunBefore = (await repo.getUser("u_arjun"))!.balance;
+
+    const plan = await repo.applyStatsImport("u_admin", [
+      { clubggId: "8842041", nickname: "diego", handsPlayed: 500, rake: 10000, buyIn: 0, cashOut: 0, profitLoss: 0, hours: 4 },
+    ]);
+
+    // 10000: player 1000 (10%), marco 1500 (25−10), arjun 1500 (40−25), admin 6000.
+    expect((await repo.getUser("u_diego"))!.balance).toBe(diegoBefore + 1000);
+    expect((await repo.getUser("u_marco"))!.balance).toBe(marcoBefore + 1500);
+    expect((await repo.getUser("u_arjun"))!.balance).toBe(arjunBefore + 1500);
+    expect(plan.totals.adminKept).toBe(6000);
+    // Grand-total invariant.
+    expect(plan.totals.playerRakeback + plan.totals.commission + plan.totals.adminKept).toBe(plan.totals.rake);
   });
 
   it("still updates an ineligible player's stats but pays them no rakeback", async () => {
