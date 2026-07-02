@@ -10,6 +10,7 @@ import { AdminUserManager, type AdminUserRow } from "@/components/admin/AdminUse
 import { RosterTools } from "@/components/admin/RosterTools";
 import { StatsImport } from "@/components/admin/StatsImport";
 import { ClubEconomics } from "@/components/admin/ClubEconomics";
+import { AgentExposure, type AgentExposureRow } from "@/components/admin/AgentExposure";
 import { formatMoney, formatNumber, formatDate } from "@/lib/format";
 export default async function AdminPage() {
   const user = await getCurrentUser();
@@ -29,6 +30,25 @@ export default async function AdminPage() {
   const userById = new Map(users.map((u) => [u.id, u]));
   const settlementHistory = settlements.filter((t) => t.status !== "pending");
   const kycQueue = users.filter((u) => u.kycStatus === "pending");
+
+  // Every agent's balance vs. what they've committed across their DIRECT
+  // players' credit limits — the fleet-wide view of the invariant enforced
+  // per-agent in the repository (transfers/credits can't breach it, but
+  // admin's own adjustBalance is intentionally exempt, so this is where that
+  // exemption becomes visible instead of surfacing later as a shortfall).
+  const agentExposureRows: AgentExposureRow[] = users
+    .filter((u) => u.role === "agent")
+    .map((agent) => ({
+      id: agent.id,
+      username: agent.username,
+      fullName: agent.fullName,
+      status: agent.status,
+      balance: agent.balance,
+      committed: users
+        .filter((u) => u.uplineAgentId === agent.id)
+        .reduce((s, u) => s + (u.creditLimit ?? 0), 0),
+      currency: agent.currency,
+    }));
   const adminRows: AdminUserRow[] = users.map((u) => {
     const upline = u.uplineAgentId ? userById.get(u.uplineAgentId) : undefined;
     return {
@@ -69,6 +89,8 @@ export default async function AdminPage() {
       </div>
 
       <ClubEconomics />
+
+      <AgentExposure agents={agentExposureRows} />
 
       <Card>
         <SectionTitle
