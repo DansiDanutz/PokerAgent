@@ -350,6 +350,39 @@ export class MemoryRepository implements Repository {
     }
   }
 
+  /**
+   * Total credit limits an agent has extended to their DIRECT players — the
+   * cash they've promised to have on hand to cover if those players go
+   * negative. This is a live commitment, not a one-time check: every action
+   * that would leave the agent's balance below this total is blocked (see
+   * `assertRetainsExposureCapacity`), so "credit limit" stays a real,
+   * balance-backed reserve instead of a paper ceiling that can be spent away.
+   */
+  private creditExposure(agentId: string, excludePlayerId?: string): number {
+    return [...this.users.values()]
+      .filter((u) => u.uplineAgentId === agentId && u.id !== excludePlayerId)
+      .reduce((s, u) => s + (u.creditLimit ?? 0), 0);
+  }
+
+  /**
+   * Guard for any voluntary balance-reducing action an agent takes (transfer
+   * out, crediting a player): the balance left behind must still cover every
+   * credit limit the agent has extended. Admin is exempt — the admin is the
+   * system's root source of value, not a capital-constrained party.
+   */
+  private assertRetainsExposureCapacity(agent: User, amountLeaving: number): void {
+    if (agent.role === "admin") return;
+    const exposure = this.creditExposure(agent.id);
+    const remaining = agent.balance - amountLeaving;
+    if (remaining < exposure) {
+      throw new Error(
+        `That would leave you with ${formatMoney(remaining, agent.currency)}, below the ` +
+          `${formatMoney(exposure, agent.currency)} you've committed in player credit limits. ` +
+          `Lower a player's limit first, or keep more in reserve.`,
+      );
+    }
+  }
+
   async creditMember(input: CreditMemberInput): Promise<Transaction> {
     await this.assertUpline(input.agentId, input.memberId);
     const agent = this.users.get(input.agentId);
@@ -368,6 +401,7 @@ export class MemoryRepository implements Repository {
       if (agent.balance < input.amount) {
         throw new Error("Insufficient balance — request credit from admin first");
       }
+      this.assertRetainsExposureCapacity(agent, input.amount);
       const debit: Transaction = {
         id: this.id("t"),
         userId: agent.id,
@@ -419,9 +453,7 @@ export class MemoryRepository implements Repository {
         throw new Error("You can only set credit limits for your own players");
       }
       // Sum of limits across the agent's players cannot exceed the agent's balance.
-      const others = [...this.users.values()]
-        .filter((u) => u.uplineAgentId === actorId && u.id !== playerId)
-        .reduce((s, u) => s + (u.creditLimit ?? 0), 0);
+      const others = this.creditExposure(actorId, playerId);
       if (others + creditLimit > actor.balance) {
         throw new Error("Total credit limits would exceed your balance");
       }
@@ -563,6 +595,7 @@ export class MemoryRepository implements Repository {
     this.assertTransferAllowed(from, recipient);
     if (input.amount <= 0) throw new Error("Amount must be positive");
     if (from.balance < input.amount) throw new Error("Insufficient balance");
+    this.assertRetainsExposureCapacity(from, input.amount);
 
     const ts = this.now();
     const out: Transaction = {
@@ -741,21 +774,32 @@ export class MemoryRepository implements Repository {
   }
 
   /** Compute the full distribution plan from CURRENT state, mutating nothing. */
-  private async buildStatsImportPlan(adminId: string, rows: ClubggMemberStats[]): Promise<StatsImportPlan> {
-    this.assertAdmin(adminId);
-    const membersByClubId = new Map<string, DistributionMember>();
+  /** Per-agent effective rate + name + club-wide rakeback eligibility, shared
+   *  by the import and the estimate so both run identical economics. */
+  private async ratesContext(): Promise<{
+    eligibleIds: Set<string>;
+    rateByAgent: Map<string, number>;
+    nameByAgent: Map<string, string>;
+  }> {
     const eligibleIds = new Set<string>();
-    for (const u of this.users.values()) {
-      if (u.clubggId) membersByClubId.set(u.clubggId, { id: u.id, username: u.username });
-      if (isRakebackEligible(this.levelInputsForUser(u))) eligibleIds.add(u.id);
-    }
-    // Effective commission rate per agent (0 when frozen / below the agent tier).
     const rateByAgent = new Map<string, number>();
     const nameByAgent = new Map<string, string>();
     for (const u of this.users.values()) {
-      if (u.role !== "agent") continue;
-      nameByAgent.set(u.id, u.username);
-      rateByAgent.set(u.id, (await this.getNetworkSummary(u.id)).commissionRate);
+      if (isRakebackEligible(this.levelInputsForUser(u))) eligibleIds.add(u.id);
+      if (u.role === "agent") {
+        nameByAgent.set(u.id, u.username);
+        rateByAgent.set(u.id, (await this.getNetworkSummary(u.id)).commissionRate);
+      }
+    }
+    return { eligibleIds, rateByAgent, nameByAgent };
+  }
+
+  private async buildStatsImportPlan(adminId: string, rows: ClubggMemberStats[]): Promise<StatsImportPlan> {
+    this.assertAdmin(adminId);
+    const { eligibleIds, rateByAgent, nameByAgent } = await this.ratesContext();
+    const membersByClubId = new Map<string, DistributionMember>();
+    for (const u of this.users.values()) {
+      if (u.clubggId) membersByClubId.set(u.clubggId, { id: u.id, username: u.username });
     }
     return planDistribution(rows, {
       playerRakebackRate: CLUB.playerRakebackRate,
@@ -769,6 +813,54 @@ export class MemoryRepository implements Repository {
 
   async previewStatsImport(adminId: string, rows: ClubggMemberStats[]): Promise<StatsImportPlan> {
     return clone(await this.buildStatsImportPlan(adminId, rows));
+  }
+
+  async estimateDistribution(agentId: string): Promise<StatsImportPlan> {
+    const agent = this.users.get(agentId);
+    if (!agent) throw new Error("User not found");
+    const { eligibleIds, rateByAgent, nameByAgent } = await this.ratesContext();
+    // Downline members become rows keyed by id, carrying their LIFETIME rake.
+    const downline = [...this.users.values()].filter((u) => this.isDescendantOf(u.id, agentId));
+    const membersByClubId = new Map<string, DistributionMember>(
+      downline.map((m) => [m.id, { id: m.id, username: m.username }]),
+    );
+    const rows: ClubggMemberStats[] = downline.map((m) => ({
+      clubggId: m.id,
+      nickname: m.username,
+      handsPlayed: m.stats.handsPlayed,
+      rake: m.stats.rakeGenerated,
+      buyIn: 0,
+      cashOut: 0,
+      profitLoss: m.stats.netProfit,
+      hours: m.stats.tableHours,
+    }));
+    // Cap the override chain at the viewing agent — their subtree view.
+    const cappedChain = (userId: string): string[] => {
+      const full = this.agentChainOf(userId);
+      const idx = full.indexOf(agentId);
+      return idx === -1 ? full : full.slice(0, idx + 1);
+    };
+    return clone(
+      planDistribution(rows, {
+        playerRakebackRate: CLUB.playerRakebackRate,
+        membersByClubId,
+        rakebackEligible: (id) => eligibleIds.has(id),
+        agentChainOf: cappedChain,
+        agentRate: (id) => rateByAgent.get(id) ?? 0,
+        agentUsername: (id) => nameByAgent.get(id) ?? id,
+      }),
+    );
+  }
+
+  /** True when `userId` is somewhere in `agentId`'s downline subtree. */
+  private isDescendantOf(userId: string, agentId: string): boolean {
+    let cur = this.users.get(userId)?.uplineAgentId ?? null;
+    let guard = 0;
+    while (cur && guard++ < 100) {
+      if (cur === agentId) return true;
+      cur = this.users.get(cur)?.uplineAgentId ?? null;
+    }
+    return false;
   }
 
   async applyStatsImport(adminId: string, rows: ClubggMemberStats[]): Promise<StatsImportPlan> {

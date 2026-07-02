@@ -3,6 +3,7 @@
 import { useActionState, useRef, useState } from "react";
 import { FileSpreadsheet, Eye, CheckCircle2, AlertTriangle, Coins, Users } from "lucide-react";
 import { Card, SectionTitle, Button, Stat, Badge } from "@/components/ui";
+import { RakeSplitBar } from "@/components/clubgg/RakeSplitBar";
 import { runStatsImport, type StatsImportState } from "@/app/actions";
 import { formatMoney, formatNumber } from "@/lib/format";
 
@@ -194,52 +195,6 @@ function PlanView({
           ))}
         </ul>
       )}
-    </div>
-  );
-}
-
-/**
- * The 3-way split of total rake — Players / Agents / Admin — as a single
- * stacked bar with amounts and percentages. Directly answers "how much does
- * each party get". The three always sum to total rake.
- */
-function RakeSplitBar({
-  rake,
-  players,
-  agents,
-  admin,
-  currency,
-}: {
-  rake: number;
-  players: number;
-  agents: number;
-  admin: number;
-  currency: string;
-}) {
-  const pct = (n: number) => (rake > 0 ? (n / rake) * 100 : 0);
-  const segments = [
-    { label: "Players", amount: players, cls: "bg-emerald-glow", text: "text-emerald-soft" },
-    { label: "Agents", amount: agents, cls: "bg-gold-500", text: "text-gold-300" },
-    { label: "Admin", amount: admin, cls: "bg-white/25", text: "text-ink-200" },
-  ];
-  return (
-    <div className="rounded-xl bg-white/[0.03] p-4 ring-1 ring-inset ring-white/5">
-      <p className="mb-2 text-xs font-semibold text-ink-200">Where the rake goes</p>
-      <div className="flex h-3 w-full overflow-hidden rounded-full bg-felt-900">
-        {segments.map((s) => (
-          <div key={s.label} className={s.cls} style={{ width: `${pct(s.amount)}%` }} title={`${s.label}: ${formatMoney(s.amount, currency)}`} />
-        ))}
-      </div>
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        {segments.map((s) => (
-          <div key={s.label}>
-            <p className={`text-sm font-semibold tabular-nums ${s.text}`}>{formatMoney(s.amount, currency)}</p>
-            <p className="text-[11px] text-ink-500">
-              {s.label} · {pct(s.amount).toFixed(1)}%
-            </p>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }

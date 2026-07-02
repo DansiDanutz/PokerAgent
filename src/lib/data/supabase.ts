@@ -846,9 +846,16 @@ export class SupabaseRepository implements Repository {
   }
 
   // --- ClubGG stats import -------------------------------------------------
-  /** Build the distribution plan from CURRENT state (all reads, no mutation). */
-  private async buildStatsImportPlan(adminId: string, rows: ClubggMemberStats[]): Promise<StatsImportPlan> {
-    await this.assertAdmin(adminId);
+  /** The reusable distribution context (rates, eligibility, tree walk), shared
+   *  by the import and the estimate so both run identical economics. */
+  private async distributionCtx(): Promise<{
+    users: User[];
+    byId: Map<string, User>;
+    eligibleIds: Set<string>;
+    rateByAgent: Map<string, number>;
+    nameByAgent: Map<string, string>;
+    agentChainOf: (userId: string) => string[];
+  }> {
     const users = await this.allProfiles();
     const byId = new Map(users.map((u) => [u.id, u]));
     const childCount = new Map<string, number>();
@@ -860,11 +867,16 @@ export class SupabaseRepository implements Repository {
       tableHours: u.stats.tableHours,
       directReferrals: childCount.get(u.id) ?? 0,
     });
-    const membersByClubId = new Map<string, DistributionMember>();
     const eligibleIds = new Set<string>();
+    const rateByAgent = new Map<string, number>();
+    const nameByAgent = new Map<string, string>();
     for (const u of users) {
-      if (u.clubggId) membersByClubId.set(u.clubggId, { id: u.id, username: u.username });
       if (isRakebackEligible(levelInputs(u))) eligibleIds.add(u.id);
+    }
+    for (const u of users) {
+      if (u.role !== "agent") continue;
+      nameByAgent.set(u.id, u.username);
+      rateByAgent.set(u.id, (await this.getNetworkSummary(u.id)).commissionRate);
     }
     const agentChainOf = (userId: string): string[] => {
       const chain: string[] = [];
@@ -878,20 +890,65 @@ export class SupabaseRepository implements Repository {
       }
       return chain;
     };
-    const rateByAgent = new Map<string, number>();
-    const nameByAgent = new Map<string, string>();
-    for (const u of users) {
-      if (u.role !== "agent") continue;
-      nameByAgent.set(u.id, u.username);
-      rateByAgent.set(u.id, (await this.getNetworkSummary(u.id)).commissionRate);
+    return { users, byId, eligibleIds, rateByAgent, nameByAgent, agentChainOf };
+  }
+
+  /** Build the distribution plan from CURRENT state (all reads, no mutation). */
+  private async buildStatsImportPlan(adminId: string, rows: ClubggMemberStats[]): Promise<StatsImportPlan> {
+    await this.assertAdmin(adminId);
+    const ctx = await this.distributionCtx();
+    const membersByClubId = new Map<string, DistributionMember>();
+    for (const u of ctx.users) {
+      if (u.clubggId) membersByClubId.set(u.clubggId, { id: u.id, username: u.username });
     }
     return planDistribution(rows, {
       playerRakebackRate: CLUB.playerRakebackRate,
       membersByClubId,
-      rakebackEligible: (id) => eligibleIds.has(id),
-      agentChainOf,
-      agentRate: (id) => rateByAgent.get(id) ?? 0,
-      agentUsername: (id) => nameByAgent.get(id) ?? id,
+      rakebackEligible: (id) => ctx.eligibleIds.has(id),
+      agentChainOf: ctx.agentChainOf,
+      agentRate: (id) => ctx.rateByAgent.get(id) ?? 0,
+      agentUsername: (id) => ctx.nameByAgent.get(id) ?? id,
+    });
+  }
+
+  async estimateDistribution(agentId: string): Promise<StatsImportPlan> {
+    const ctx = await this.distributionCtx();
+    if (!ctx.byId.has(agentId)) throw new Error("User not found");
+    const isDescendant = (userId: string): boolean => {
+      let cur = ctx.byId.get(userId)?.uplineAgentId ?? null;
+      let guard = 0;
+      while (cur && guard++ < 100) {
+        if (cur === agentId) return true;
+        cur = ctx.byId.get(cur)?.uplineAgentId ?? null;
+      }
+      return false;
+    };
+    const downline = ctx.users.filter((u) => isDescendant(u.id));
+    const membersByClubId = new Map<string, DistributionMember>(
+      downline.map((m) => [m.id, { id: m.id, username: m.username }]),
+    );
+    const rows: ClubggMemberStats[] = downline.map((m) => ({
+      clubggId: m.id,
+      nickname: m.username,
+      handsPlayed: m.stats.handsPlayed,
+      rake: m.stats.rakeGenerated,
+      buyIn: 0,
+      cashOut: 0,
+      profitLoss: m.stats.netProfit,
+      hours: m.stats.tableHours,
+    }));
+    const cappedChain = (userId: string): string[] => {
+      const full = ctx.agentChainOf(userId);
+      const idx = full.indexOf(agentId);
+      return idx === -1 ? full : full.slice(0, idx + 1);
+    };
+    return planDistribution(rows, {
+      playerRakebackRate: CLUB.playerRakebackRate,
+      membersByClubId,
+      rakebackEligible: (id) => ctx.eligibleIds.has(id),
+      agentChainOf: cappedChain,
+      agentRate: (id) => ctx.rateByAgent.get(id) ?? 0,
+      agentUsername: (id) => ctx.nameByAgent.get(id) ?? id,
     });
   }
 

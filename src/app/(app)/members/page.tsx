@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { getRepository } from "@/lib/data";
 import { CLUB } from "@/lib/clubgg";
 import { Card, Stat, SectionTitle, Badge, Button, Avatar } from "@/components/ui";
+import { RakeSplitBar } from "@/components/clubgg/RakeSplitBar";
 import { MemberManager, type MemberRow } from "@/components/members/MemberManager";
 import { TX_META } from "@/components/wallet/txMeta";
 import { decideMemberTransaction, requestAgentCredit } from "@/app/actions";
@@ -17,12 +18,16 @@ export default async function MembersPage() {
   if (user.role === "player") redirect("/dashboard");
 
   const repo = getRepository();
-  const [downline, summary, allSettlements] = await Promise.all([
+  const [downline, summary, allSettlements, estimate] = await Promise.all([
     repo.listDownline(user.id),
     repo.getNetworkSummary(user.id),
     user.role === "agent" ? repo.listSettlements() : Promise.resolve([]),
+    user.role === "agent" ? repo.estimateDistribution(user.id) : Promise.resolve(null),
   ]);
   const mySettlements = allSettlements.filter((t) => t.userId === user.id);
+  // Accurate commission from the SAME override engine imports use (not the
+  // rough networkRake×rate estimate) — what this agent actually gets paid.
+  const myCommission = estimate?.settlements.find((s) => s.agentId === user.id)?.commission ?? summary.commissionEarned;
 
   // Build member rows with derived level/status.
   const rows: MemberRow[] = downline.map((m) => {
@@ -54,6 +59,16 @@ export default async function MembersPage() {
     };
   });
   const notEarningRakeback = rows.filter((r) => !r.rakebackEligible);
+
+  // Cash-flow health: an agent's balance must be able to carry their players'
+  // debts. `committed` is the ceiling they've promised across direct credit
+  // limits (enforced at the repository layer — transfers/credits can't drop
+  // balance below this); `utilizedDebt` is what direct players ALREADY owe
+  // right now (what the next sweep would actually pull from the agent).
+  const directRows = rows.filter((r) => r.isDirect);
+  const committed = directRows.reduce((s, r) => s + r.creditLimit, 0);
+  const utilizedDebt = directRows.filter((r) => r.balance < 0).reduce((s, r) => s - r.balance, 0);
+  const available = Math.max(0, user.balance - committed);
 
   // Pending requests across the downline.
   const txLists = await Promise.all(downline.map((m) => repo.listTransactions(m.id)));
@@ -87,6 +102,39 @@ export default async function MembersPage() {
         </Card>
       )}
 
+      {/* Cash flow — your balance must be able to carry your players' debts */}
+      {user.role === "agent" && directRows.length > 0 && (
+        <Card>
+          <SectionTitle
+            title="Cash flow"
+            subtitle="Your balance backs every chip you credit and every credit limit you extend to your players."
+          />
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Stat label="Your balance" value={formatMoney(user.balance, user.currency)} tone="gold" />
+            <Stat label="Committed limits" value={formatMoney(committed, user.currency)} hint="direct players" />
+            <Stat
+              label="Available"
+              value={formatMoney(available, user.currency)}
+              tone={available > 0 ? "up" : "down"}
+              hint="free to move or extend"
+            />
+            <Stat
+              label="Currently owed to you"
+              value={formatMoney(utilizedDebt, user.currency)}
+              tone={utilizedDebt > 0 ? "down" : "default"}
+              hint="next sweep would pull this"
+            />
+          </div>
+          {utilizedDebt > 0 && (
+            <p className="mt-3 flex items-start gap-1.5 text-xs text-[var(--color-warning)]">
+              <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+              {formatMoney(utilizedDebt, user.currency)} of your players&apos; negative balances will be swept onto
+              your balance at the next daily settlement — make sure you have room for it.
+            </p>
+          )}
+        </Card>
+      )}
+
       {/* Earnings / commission */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Members" value={formatNumber(summary.totalNetwork)} />
@@ -94,10 +142,24 @@ export default async function MembersPage() {
         <Stat label="Network rake" value={formatMoney(summary.networkRake, summary.currency)} />
         <Stat
           label="Your commission"
-          value={formatMoney(summary.commissionEarned, summary.currency)}
+          value={formatMoney(myCommission, summary.currency)}
           tone="gold"
+          hint="override, est."
         />
       </div>
+
+      {/* Estimated split of the agent's network rake under the live model */}
+      {estimate && estimate.totals.rake > 0 && (
+        <RakeSplitBar
+          rake={estimate.totals.rake}
+          players={estimate.totals.playerRakeback}
+          agents={estimate.totals.commission}
+          admin={estimate.totals.adminKept}
+          currency={summary.currency}
+          title="How your network's rake distributes (estimate)"
+          labels={{ players: "Players", agents: "You & sub-agents", admin: "Upstream & house" }}
+        />
+      )}
 
       {/* Agent rakeback tier */}
       {user.role === "agent" && (

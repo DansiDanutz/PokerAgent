@@ -180,6 +180,15 @@ export interface Repository {
    * that was actually applied. Admin only.
    */
   applyStatsImport(adminId: string, rows: ClubggMemberStats[]): Promise<StatsImportPlan>;
+  /**
+   * Estimate how an agent's downline's LIFETIME rake would distribute under the
+   * current override model — the SAME engine imports use, so the "your
+   * commission" figure an agent sees matches what they actually get paid. The
+   * chain is capped at the viewing agent (their subtree view): players and
+   * sub-agents earn their slice, the agent earns their override, and the
+   * residual flows "upstream" (their uplines + house). Read-only.
+   */
+  estimateDistribution(agentId: string): Promise<StatsImportPlan>;
 
   // --- monthly rakeback tier recalculation (cron) ---
   /**

@@ -559,6 +559,43 @@ describe("MemoryRepository — per-player credit limits", () => {
   });
 });
 
+describe("MemoryRepository — credit exposure stays balance-backed", () => {
+  let repo: MemoryRepository;
+  beforeEach(() => {
+    repo = new MemoryRepository();
+  });
+
+  it("blocks a transfer that would leave the agent unable to cover extended credit limits", async () => {
+    // Arjun (825_000 balance) commits 800_000 to Alex's credit limit — a
+    // transfer out of 50_000 would leave 775_000, below the 800_000 promised.
+    await repo.setPlayerCreditLimit("u_arjun", "u_alex", 800_000);
+    await expect(
+      repo.transfer({ fromUserId: "u_arjun", toReferralCode: "PA-MARCO-09", amount: 50_000 }),
+    ).rejects.toThrow(/credit limits/i);
+  });
+
+  it("allows a transfer that keeps enough balance to cover extended credit limits", async () => {
+    await repo.setPlayerCreditLimit("u_arjun", "u_alex", 100_000);
+    // 825_000 - 50_000 = 775_000, well above the 100_000 committed.
+    await expect(
+      repo.transfer({ fromUserId: "u_arjun", toReferralCode: "PA-MARCO-09", amount: 50_000 }),
+    ).resolves.toBeDefined();
+  });
+
+  it("blocks crediting a player that would leave extended credit limits uncovered", async () => {
+    await repo.setPlayerCreditLimit("u_arjun", "u_alex", 800_000);
+    await expect(
+      repo.creditMember({ agentId: "u_arjun", memberId: "u_sara", type: "adjustment", amount: 50_000 }),
+    ).rejects.toThrow(/credit limits/i);
+  });
+
+  it("does not restrict admin, who has no exposure ceiling", async () => {
+    await expect(
+      repo.creditMember({ agentId: "u_admin", memberId: "u_alex", type: "adjustment", amount: 500_000 }),
+    ).resolves.toBeDefined();
+  });
+});
+
 describe("MemoryRepository — daily negative-balance sweep", () => {
   let repo: MemoryRepository;
   beforeEach(() => {
@@ -755,5 +792,18 @@ describe("MemoryRepository — ClubGG stats import", () => {
   it("refuses a non-admin caller", async () => {
     await expect(repo.applyStatsImport("u_alex", rows)).rejects.toThrow(/admin/i);
     await expect(repo.previewStatsImport("u_arjun", rows)).rejects.toThrow(/admin/i);
+  });
+
+  it("estimates an agent's own override commission with the same engine imports use", async () => {
+    (repo as unknown as { users: Map<string, User> }).users.get("u_arjun")!.currentRakebackRate = 0.3;
+    const plan = await repo.estimateDistribution("u_arjun");
+    // Arjun's own line = his override across the eligible members in his subtree,
+    // and it never exceeds the (rough) networkRake×rate figure.
+    const summary = await repo.getNetworkSummary("u_arjun");
+    const mine = plan.settlements.find((s) => s.agentId === "u_arjun")?.commission ?? 0;
+    expect(mine).toBeGreaterThan(0);
+    expect(mine).toBeLessThan(Math.round(summary.networkRake * summary.commissionRate));
+    // The estimate reconciles: players + agents + upstream === total network rake.
+    expect(plan.totals.playerRakeback + plan.totals.commission + plan.totals.adminKept).toBe(plan.totals.rake);
   });
 });
